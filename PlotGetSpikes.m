@@ -1,4 +1,4 @@
-function varargout = PlotGetSpikes(dt, v, spike, options, burst)
+function varargout = PlotGetSpikes( dt, v, spike, options, burst )
 % PlotGetSpikes(dt, v, spike, options, burst)
 % plot spike info (and optionally bursts) on top of voltage trace
 %  INPUTS:

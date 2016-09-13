@@ -14,6 +14,7 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   parser.addParameter( 'pFalseSpike', 1e-3 )
   parser.addParameter( 'bracketWidth', [] )
   parser.addParameter( 'removeOutliers', true )
+  parser.addParameter( 'outlierFraction', 0.33 )
   
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -33,21 +34,16 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   
   
   [n1List, n2List] = extendBrackets( n1List, n2List, v, deriv, deriv2 );
-  spike.n1List = n1List;
-  spike.n2List = n2List;
-  
-  numSpikes = numel( n1List );
-  spike.times = nan(1, numSpikes);
+    
+  [spike, numSpikes] = initializeSpike( n1List, n2List );
+  if numSpikes == 0
+    spike.frequencies = []; spike.intervals = []; spike.freq = 0;
+    return
+  end
   badSpikes = false(1, numSpikes);
   
   %K = deriv2 .* (1 + deriv.^2).^-1.5;
   K = deriv2;
-  
-  spike = initializeSpike( numSpikes );
-  if numSpikes == 0
-    return
-  end
-  
   badSpikeReasons = cell( numSpikes, 1 );
   for m = 1:numSpikes
     n1 = n1List(m);
@@ -143,8 +139,7 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
     % first check for extremely short spikes
     spikeHeight = spike.height(~badSpikes);
     medianHeight = median( spikeHeight );
-    thresholdHeight = min(0.5 * medianHeight, ...
-      medianHeight - 3 * std(spikeHeight));
+    thresholdHeight = options.outlierFraction * medianHeight;
     badSpikes = badSpikes | (spike.height < thresholdHeight);
     
     % next check for spikes with very low derivative
@@ -175,12 +170,18 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
     % remove bad spikes from spike struct
     spike = removeBadSpikes( spike, badSpikes );
   end
+  spike.ind = spike.maxV.ind;
   
   %  Calculate spike intervals and frequencies
-  if ~isempty( spike.times )
+  if isempty( spike.times )
+    spike.intervals = [];
+    spike.frequencies = [];
+  else
     spike.intervals = spike.times(2:end) - spike.times(1:(end-1));
     spike.frequencies = 1000 ./ spike.intervals;
   end
+  %get the overall spike frequency
+  spike.freq = getSpikeFrequency( spike.times, dT * (numel( v ) - 1) );
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -204,7 +205,14 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % create structure to hold spike information
-function   spike = initializeSpike( numSpikes )
+function   [spike, numSpikes] = initializeSpike( n1List, n2List )
+  spike.n1List = n1List;
+  spike.n2List = n2List;
+  
+  numSpikes = numel( n1List );
+  spike.times = nan( 1, numSpikes );
+  spike.ind = nan( 1, numSpikes );
+
   spike.maxV.v = nan(1, numSpikes);
   spike.maxV.t = nan(1, numSpikes);
   spike.maxV.ind = nan(1, numSpikes);
@@ -233,8 +241,6 @@ function   spike = initializeSpike( numSpikes )
   spike.height = nan(1, numSpikes);
   spike.width = nan(1, numSpikes);
   spike.repolarizationPotential = nan(1, numSpikes);
-  spike.intervals = [];
-  spike.frequencies = [];
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -286,7 +292,7 @@ function [noiseHeight, checkHeights] = getNoiseHeight(v, n1List, n2List,...
   noiseHeights = noiseHeights(noiseHeights(:) > 0);
   noiseHeights = sort(noiseHeights);
   % find the peak of those noise heights
-  [peakNoise, sigma] = FindPeak( noiseHeights, options.noiseCheckQuantile );
+  [peakNoise, ~, sigma] = FindPeak( noiseHeights, options.noiseCheckQuantile );
   highNoiseHeights = noiseHeights(noiseHeights >= peakNoise) - peakNoise;
   % assume peak is ~ gaussian, and estimate sigma of that peak by finding the
   % location halfway down the cumulative distribution
@@ -469,5 +475,29 @@ function spike = removeBadSpikes( spike, badSpikes )
       checkList = spike.(name1).(name2);
       spike.(name1).(name2) = checkList(goodSpikes);
     end
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function freq = getSpikeFrequency(times, tFinal)
+  if isempty( times ) || tFinal == 0
+    freq = 0;
+    return
+  end
+  
+  tHalf = .5 * tFinal;
+  if isempty( find( times > tHalf, 1 ) )
+    %Check if there are no events in the second half of the experiment
+    %  if so, presumably it just took a LONG time to settle down, so
+    %  label the cell as NOT spiking
+    freq = 0;
+    return
+  end
+  
+  numEvents = numel( times );
+  if numEvents == 1
+    freq = 1000 * numEvents / tFinal;
+  else
+    freq = 1000 * (numEvents - 1) / (times(end) - times(1));
   end
 end

@@ -1,4 +1,4 @@
-% [peak, sigma] = findPeak( x, sigmaCheckQuantile, outlierQuantile )
+% [peak, sigmaMinus, sigmaPlus] = findPeak( x, sigmaCheckQuantile, outlierQuantile )
 % find the peak of list of data points x
 % NOTE - this function assumes x is a sorted row of finite values
 %   INPUTS:
@@ -30,10 +30,21 @@ function varargout = FindPeak( x, sigmaCheckQuantile, outlierQuantile )
       end
     end
     checkVal = vals(checkInd);
-    sigma = peak + (checkVal - peak) / numSigmaCheck;
+    sigmaPlus = (checkVal - peak) / numSigmaCheck;
+    checkInd = [];
+    while isempty( checkInd )
+      numSigmaCheck = sqrt( 2.0 ) * erfinv( sigmaCheckQuantile );
+      sigmaDense = maxDense * exp( -numSigmaCheck^2 / sqrt(2) );
+      checkInd = find( density(1:maxInd-1) <= sigmaDense, 1, 'last' );
+      if isempty( checkInd )
+        sigmaCheckQuantile = 0.9 * sigmaCheckQuantile;
+      end
+    end
+    checkVal = vals(checkInd);
+    sigmaMinus = (peak - checkVal) / numSigmaCheck;
   else
-    sigma = [];
+    sigmaPlus = []; sigmaMinus = [];
   end
-  varargout = { peak, sigma };
+  varargout = { peak, sigmaMinus, sigmaPlus };
 end
 

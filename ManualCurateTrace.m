@@ -7,9 +7,9 @@ function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
   parser.addParameter( 'debugPlots', false )
   parser.addParameter( 'axesHeight', 0.85 )
   parser.addParameter( 'buttonWidth', 60 )
-  parser.addParameter( 'buttonHeight', 40 )
-  parser.addParameter( 'xPad', 5 )
-  parser.addParameter( 'yPad', 5 )
+  parser.addParameter( 'buttonHeight', 35 )
+  parser.addParameter( 'xPad', 3 )
+  parser.addParameter( 'yPad', 3 )
   
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -19,6 +19,7 @@ function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
   end
   
   [t, v] = getTraceInfo( traceInfo, options );
+  t = t(1:100000); v = v(1:100000);
   
   if ~exist( 'spikeInfo', 'var') || isempty( spikeInfo )
     spikeInfo = GetSpikes( t, v, 'plotSubject', options.debugPlots, ...
@@ -94,6 +95,9 @@ function [spikeTimes, spikePeaks] = getSpikeTimes( t, v, spikeInfo )
   spikeTimes = ...
     [t(spikeInfo.n1List)', t(spikeInfo.maxV.ind)', t(spikeInfo.n2List)'];
   spikePeaks = v(spikeInfo.maxV.ind);
+  if ~iscolumn( spikePeaks )
+    spikePeaks = spikePeaks';
+  end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -109,7 +113,10 @@ function traceInfo = curateTrace( t, v, spikeTimes, spikePeaks, ...
   % create GUI figure
   titleStr = options.title;
   fig = NamedFigure( titleStr ); clf( fig ) ; fig.WindowStyle = 'docked';
-
+  fig.Units = 'pixels'; h = fig.Position(4);
+  fig.Units = 'points'; hPoints = fig.Position(4);
+  fig.Units = 'pixels'; options.pixelsPerPoint = h / hPoints;
+  
   % store trace data that is necessary for curation
   traceData = struct( 'dT', diff( t(1:2) ), 't', t, ...
                       'v', v, 'minV', min( v ), 'maxV', max( v ),...
@@ -118,14 +125,14 @@ function traceInfo = curateTrace( t, v, spikeTimes, spikePeaks, ...
   traceData.originalTraceData = traceData;
   fig.UserData = traceData;
 
-  % add axes to figure
-  addAxes( fig, options );
-    
   % add control panel to figure
-  addControlPanel( fig, ax, options )
+  controlPanel = addControlPanel( fig, options );
 
+  % add axes to figure
+  [ax, options] = addAxes( fig, controlPanel, options );
+    
   % add resize function
-  fig.ResizeFcn = @(varargin) figResizeCallback( ax, options );
+  fig.ResizeFcn = @(varargin) figResizeCallback( ax, controlPanel, options );
 
   % plot the trace
   plotTrace( ax )
@@ -141,77 +148,95 @@ function traceInfo = curateTrace( t, v, spikeTimes, spikePeaks, ...
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% add control panel
+function controlPanel = addControlPanel( fig, options )
+  buttonHeight = options.buttonHeight;
+  xPad = options.xPad; yPad = options.yPad;
+
+  fig.Units = 'pixels';
+  h = 2 * yPad + buttonHeight;
+  w = fig.Position(3) - xPad;
+  controlPanel = uipanel( fig, 'Units', 'pixels', ...
+                          'Position', [ xPad, yPad, w, h], ...
+                          'Tag', 'ControlPanel' );
+  
+  % add okay button
+  x = xPad; y = yPad;
+  x = addButton( controlPanel, 'Okay', @okayCallback, x, y, options, ...
+                 [0.5 1 0.5] );
+  % add instructions button
+  x = addButton( controlPanel, 'Instructions', @instructionsCallback, ...
+                 x, y, options );
+  % add reset button
+  x = addButton( controlPanel, 'Reset', @resetCallback, x, y, options );
+  % add clear button
+  x = addButton( controlPanel, 'Clear', @clearCallback, x, y, options ); %#ok<NASGU>
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function x = addButton( controlPanel, buttonStr, callback, ...
+                        x, y, options, color )
+  if ~exist( 'color', 'var' ) || isempty( color )
+    color = controlPanel.BackgroundColor;
+  end
+  fontSize = 12; wFact = 0.65;
+  w = options.pixelsPerPoint * fontSize * wFact * numel( buttonStr );
+  w = max( w, options.buttonWidth );
+  pos = [ x, y, w, options.buttonHeight ];
+  buttonObj = uicontrol( controlPanel, 'String', buttonStr, ...
+                         'Callback', callback, 'Style', 'pushbutton', ...
+                         'Units', 'pixels', 'Position', pos, ...
+                         'BackgroundColor', color, 'FontSize', fontSize );
+  
+  x = x + buttonObj.Position(3) + options.xPad;
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % add axes to figure
-function addAxes( fig, options )
-  h = options.axesHeight; y = 1.0 - h;
-  ax = axes( 'Parent', fig, 'Units', 'Normalized', 'Position', [0 y 1 h], ...
-             'Tag', 'Curate Trace Axes' );
-  ax.Units = 'Points';
-  yChars = max( cellfun( @(l) numel( l ), ax.YTickLabel ) );
-  if isempty( yChars ) || yChars < 1, yChars = 1; end
-  ax.Position = ax.Position + ax.FontSize .* [yChars, 2, -yChars - 1, -3];
-  ax.Units = 'normalized';
-  hold( ax, 'on' )
+function [ax, options] = addAxes( fig, controlPanel, options )
+  axPos = [ 0 0.5 1 0.5 ];
+  ax = axes( 'Parent', fig, 'Units', 'Normalized', 'Position', axPos, ...
+             'Tag', 'Curate Trace Axes', 'Visible', 'off' );
+  ax.Units = 'pixels';
+  figResizeCallback( ax, controlPanel, options );
+  ax.Visible = 'on';
   ax.UserData = struct( 'status', 'normal', 'editX', NaN );
   end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% add control panel
-function addControlPanel( fig, ax, options )
-  buttonWidth = options.buttonWith; buttonHeight = options.buttonHeight;
-  xPad = options.xPad; yPad = options.yPad;
-
-  h = ax.Position(2) - yPad;
-  controlPanel = uipanel( fig, 'Position', [ 0, 0, 1, h], ...
-                          'Tag', 'ControlPanel' );
-  % add okay button
-  x = xPad; y = yPad;
-  uicontrol( controlPanel, 'String', 'Okay', 'Callback', @okayCallback, ...
-             'Style', 'pushbutton', 'Units', 'pixels', ...
-             'Position', [x y buttonWidth buttonHeight], ...
-             'BackgroundColor', [0.5 1 0.5]);
-  % add reset button
-  x = x + buttonWidth + 2 * xPad;
-  uicontrol( controlPanel, 'String', 'Reset', 'Callback', @resetCallback, ...
-             'Style', 'pushbutton', 'Units', 'pixels', ...
-             'Position', [x y buttonWidth buttonHeight] );
-  % add clear button
-  x = x + buttonWidth + 2 * xPad;
-  uicontrol( controlPanel, 'String', 'Clear', 'Callback', @clearCallback, ...
-             'Style', 'pushbutton', 'Units', 'pixels', ...
-             'Position', [x y buttonWidth buttonHeight] );
-
-  % add instructions button
-  x = x + buttonWidth + 2 * xPad;
-  uicontrol( controlPanel, 'String', 'Instructions', ...
-             'Callback', @instructionsCallback, ...
-             'Style', 'pushbutton', 'Units', 'pixels', ...
-             'Position', [x y buttonWidth buttonHeight] );
-end
-                         
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function figResizeCallback( ax, options )
-  h = options.axesHeight; y = 1.0 - h;
-  ax.Position = [0 y 1 h];
-  ax.Units = 'Points';
-  yChars = max( cellfun( @(l) numel( l ), ax.YTickLabel ) );
-  if isempty( yChars ) || yChars < 1, yChars = 1; end
-  ax.Position = ax.Position + ax.FontSize .* [yChars, 2, -yChars - 1, -3];
-  ax.Units = 'normalized';
-  
+function figResizeCallback( ax, controlPanel, options )
   fig = ax.Parent;
-  controlPanel = findobj( fig.Children, 'Tag', 'ControlPanel' );
-  controlPanel.Position(4) = ax.Position(2) - options.yPad;
+  xPad = options.xPad; yPad = options.yPad;
+  w = fig.Position(3) - 2 * xPad;
+  fontPad = ax.FontSize * options.pixelsPerPoint;
+  yChars = max( cellfun( @(l) numel( l ), ax.YTickLabel ) );
+  x = xPad + yChars * fontPad;
+  if strcmp( controlPanel.Visible, 'on' )
+    y = yPad + sum( controlPanel.Position([2 4]) ) + fontPad * 2;
+    h = fig.Position(4) - y - yPad - fontPad;
+    ax.Position = [ x, y, w - x - fontPad, h ];
+  else
+    y = yPad + fontPad * 2;
+    h = fig.Position(4) - y - yPad - fontPad;
+    ax.Position = [ x, y, w - x - fontPad, h];
+  end
+  % don't resize y:
+  %controlPanel.Position(4) = ax.Position(2) - options.yPad;
+  controlPanel.Position(3) = w;
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function plotTrace( ax )
-  fig = ax.Parent; traceData = fig.UserData;
-  
+function plotTrace( ax, traceData )
+  fig = ax.Parent;
+  if ~exist( 'traceData', 'var') || isempty( traceData )
+    traceData = fig.UserData; % allow passing to avoid GUI update delay
+  end
   cla( ax ); hold( ax, 'on' )
   plot( ax, traceData.t .* 1e-3, traceData.v )
-  plot( ax, traceData.spikeTimes(:,2) .* 1e-3, traceData.spikePeaks, 'co' )
+  plot( ax, traceData.spikeTimes(:,2) .* 1e-3, traceData.spikePeaks, ...
+        'ko', 'MarkerFaceColor', 'k' )
   h = traceData.maxV - traceData.minV;
+  traceData
   for n = 1:size( traceData.burstTimes, 1 )
     t1 = traceData.burstTimes(n,1) / 1000;
     t2 = traceData.burstTimes(n,2) / 1000;
@@ -307,13 +332,13 @@ function axClickCallback( ax, eventData )
       
     case 3 % right click / long press on touch screen
       % remove a spike or burst, or cancel current selection
-      if strcmp( editStatus, 'normal' )
+      if strcmp( editStatus.status, 'normal' )
         % no selection in progress, delete based on selectionType
         switch selectionType
           case 'open' % ignore double-click
             return
           case 'extend' % delete nearest burst
-            traceData = removeNearestBurst( ax, traceData, clickX );
+            traceData = removeNearestBurst( traceData, clickX );
           otherwise % delete nearest spike
             traceData = removeNearestSpike( ax, traceData, ...
                                             clickX, clickY );
@@ -332,9 +357,8 @@ function axClickCallback( ax, eventData )
 
   % update traceData
   fig.UserData = traceData;
-  
   % update plot of trace
-  plotTrace( ax )
+  plotTrace( ax, traceData )
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -359,7 +383,8 @@ end
 function traceData = addBurst( traceData, t1, t2 )
   % ensure t1 < t2
   if t2 < t1, tTemp = t1; t1 = t2; t2 = tTemp; end
-
+  t1 = 1.0e3 * t1; t2 = 1.0e3 * t2;
+  
   % insert this burst into traceInfo.burstTimes
   burstInd = find( traceData.burstTimes(:,1) < t1, 1, 'last' );
   if isempty( burstInd ), burstInd = 0; end
@@ -377,12 +402,14 @@ function traceData = addSpike( traceData, t1, t2 )
   else
     % ensure t1 < t2
     if t2 < t1, tTemp = t1; t1 = t2; t2 = tTemp; end
+    t1 = t1 * 1.0e3; t2 = t2 * 1.0e3;
   end
   
   % find time and voltage of spike peak
   i1 = find( traceData.t >= t1, 1 );
   i2 = i1 + find( traceData.t(i1+1:end) <= t2, 1, 'last' );
   [peakV, peakInd] = max( traceData.v(i1:i2), [], 'omitnan' );
+  peakInd = peakInd + i1 - 1;
   spikeT = traceData.t(peakInd);
   
   % insert this spike into traceData
@@ -435,8 +462,8 @@ function [t1, t2] = bracketSpike( traceData, indClick )
   end
   
   % convert indices to times
-  t1 = 1.0e-3 * traceData.t(i1);
-  t2 = 1.0e-3 * traceData.t(i2);
+  t1 = traceData.t(i1);
+  t2 = traceData.t(i2);
 end
 
 
@@ -465,12 +492,18 @@ function traceData = removeNearestBurst( traceData, clickX )
   clickX = clickX * 1.0e3;
   rmInd = find( t(:,1) <= clickX & clickX <= t(:,2), 1 );
   if ~isempty( rmInd )
-    traceData.burstTimes(:,rmInd) = [];
+    traceData.burstTimes(rmInd,:) = [];
   end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function okayCallback( buttonObj, eventData )
+  fig = buttonObj.Parent.Parent;
+  controlPanel = findobj( fig.Children, 'Tag', 'ControlPanel' );
+  controlPanel.Visible = 'off';
+  ax = findobj( fig.Children, 'Tag', 'Curate Trace Axes' );
+  ax.ButtonDownFcn = @(varargin) [];
+  fig.ResizeFcn()
   uiresume()
 end
 
@@ -511,10 +544,9 @@ function instructionsCallback( buttonObj, eventData )
   instructions = {...
     'APPROVING SOURCES:', ...
     '  Click "Okay" button to approve spikes and bursts', ...
+    '  Click "Instructions" to see these nifty instructions', ...
     '  Click "Clear" button to clear all bursts', ...
-    '  Click "Reset" button to reset spikes and bursts to auto-detected', ...
-    '    (only available if source is already approved/rejected)', ...
-    '  Click "Quit" button to save and quit', ...
+    '  Click "Reset" button to reset spikes and bursts to auto-detected' ...
     'ANNOTATING SOURCES:', ...
     '  Left click near trace to add a spike.', ...
     '  To forceably bracket spike, CTRL-left-click in two locations:', ...
@@ -524,7 +556,9 @@ function instructionsCallback( buttonObj, eventData )
     '    -burst will be in between those locations', ...
     '    -to abort adding burst, right click', ...
     '  To delete a spike, right click', ...
-    '  To delete a burst, SHIFT-right-click' ...
+    '  To delete a burst, SHIFT-right-click', ...
+    'NOTE: the ANNOTATION clicks will not operate when the zoom tool is', ...
+    '      selected (which makes zooming possible)' ...
     };
   msgbox( instructions )
 end
@@ -538,7 +572,7 @@ function traceInfo = getProcessedTraceInfo( traceData )
   spike = GetSpikeShape( n1List, n2List, dT, v, [], [], ...
                          'removeOutliers', false, 'pFalseSpike', 1.99 );
   
-                       
+  burst = traceData.burstTimes;             
   traceInfo = struct( ...
     'dT', dT, 't', t, 'v', v, ...
     'spike', spike, 'burst', burst );

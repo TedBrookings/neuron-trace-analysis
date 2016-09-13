@@ -87,6 +87,7 @@ function spike = GetSpikes(dT, v, varargin)
     'recursive', false, ...
     'discountNegativeDeriv', false, ...
     'removeOutliers', true, ...
+    'outlierFraction', 0.33, ...
     'findMinis', false, ...
     'debugPlots', false ...
   };
@@ -96,13 +97,15 @@ function spike = GetSpikes(dT, v, varargin)
   if options.findMinis
     % if finding minis, change a few of the options (if not set by user)
     miniOptions = struct( ...
-      'bracketWidth', 50.0, ...
+      'bracketWidth', 100.0, ...
       'minCutoffDiff', 0.001, ...
       'minSpikeHeight', 0.0, ...
       'minSpikeAspect', 0.0, ...
-      'pFalseSpike', 0.05, ...
+      'pFalseSpike', 0.25, ...
       'discountNegativeDeriv', true, ...
-      'recursive', true ...
+      'recursive', true, ...
+      'outlierFraction', 0, ...
+      'noiseCheckQuantile', 0.55 ...
      );
     for fName = fieldnames( miniOptions )'
       if ~modified.(fName{1})
@@ -121,12 +124,9 @@ function spike = GetSpikes(dT, v, varargin)
     end
   end
 
-  %Next get the overall spike frequency
-  spike.freq = getSpikeFrequency( spike.times, dT * (numel( v ) - 1) );
-
   callstack = dbstack;
   if needPlot(options, callstack)
-    hSpikes = PlotGetSpikes(dT, v, spike, options);
+    hSpikes = PlotGetSpikes( dT, v, spike, options );
     
     % link relevant time axis together
     if options.debugPlots
@@ -205,8 +205,14 @@ function [deriv, deriv2, lowCutoff, highCutoff] = ...
     titleStr = makeTitle('Spike Thresholds', options);
     fig = NamedFigure(titleStr); fig.WindowStyle = 'docked'; clf(fig)
     ax = subplot(1,2,1, 'Parent', fig);
-    numBins = max(100, round( sqrt( numel(deriv) ) ));
-    [n, x] = hist(deriv, numBins);
+    xRangeFull = [ min( deriv ), max( deriv ) ];
+    xRange = [ max( 3 * lowCutoff, xRangeFull(1) ), ...
+               min( 3 * highCutoff, xRangeFull(2) ) ];
+    numInRange = sum( deriv >= xRange(1) & deriv <= xRange(2) );
+    numBins = max(100, round( sqrt( numInRange) ));
+    binW = diff( xRange ) / numBins;
+    binMids = xRangeFull(1):binW:xRangeFull(2);
+    [n, x] = hist(deriv, binMids);
     n = n ./ max(n);
     bar(ax, x, n, 1.0, 'EdgeColor', 'b', 'FaceColor', 'b');
     hold( ax, 'on' )
@@ -219,9 +225,6 @@ function [deriv, deriv2, lowCutoff, highCutoff] = ...
     legend( ax, { 'Derivatives', 'Low threshold', 'High threshold' }, ...
             'Location', 'Best' )
     axis( ax, 'tight' )
-    xRange = xlim();
-    xRange = [ max( 3 * lowCutoff, xRange(1) ), ...
-               min( 3 * highCutoff, xRange(2) ) ];
     xlim( ax, xRange )
     % we're debugging, so spit out information about the cutoffs
     fprintf('GetSpikes.m: low/high cutoff: %g/%g, bracketWidth=%g\n', ...
@@ -234,10 +237,10 @@ end
 function [lowCutoff, highCutoff] = getAutoCutoffs(dT, deriv, ...
                                             nyquistFrac, options, oldSpike)
 
-  if ~isempty(oldSpike)
+  if ~isempty( oldSpike )
     % first remove detected spikes from the list of voltage derivatives, then
     % sort into increasing order
-    for n = length(oldSpike.n1List):-1:1
+    for n = numel( oldSpike.n1List ):-1:1
       n1 = oldSpike.n1List(n);
       n2 = oldSpike.n2List(n);
       deriv(n1:n2) = [];
@@ -259,10 +262,17 @@ function [lowCutoff, highCutoff] = getAutoCutoffs(dT, deriv, ...
   % compute approximate 1/2-sigma levels for positive and negative
   % derivatives, based on presumably nearly-gaussian small derivatives near
   % the median derivative
-  peak = FindPeak( sortDeriv, options.noiseCheckQuantile );
+  [peak, sigmaMinus, sigmaPlus] = FindPeak( sortDeriv, options.noiseCheckQuantile );
+  wantedNumSigma = sqrt(2) * erfcinv( minRareness );
+  highCutoff = max( [0, peak + wantedNumSigma * sigmaPlus] );
   
+  if options.discountNegativeDeriv
+    wantedNumSigma = min( 1, wantedNumSigma );
+  end
+  lowCutoff = min( [0, peak - wantedNumSigma * sigmaMinus] );
+  %{ 
   highDV = sortDeriv(sortDeriv >= peak) - peak;
-  highCutoff = peak + findThresh( highDV, minRareness );
+  highCutoff = peak + findThresh( highDV, minRareness, options );
   highCutoff = max(0, highCutoff);
   
   lowDV = flip( peak - sortDeriv(sortDeriv <= peak) );
@@ -273,12 +283,13 @@ function [lowCutoff, highCutoff] = getAutoCutoffs(dT, deriv, ...
     lowCutoff = peak - lowThresh;
   end
   lowCutoff = min(0, lowCutoff);
+  %}
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % get 1-sided threshold for given rareness
-function [thresh, sigma] = findThresh(data, rareness)
-  checkP = 0.5;
+function [thresh, sigma] = findThresh(data, rareness, options)
+  checkP = options.noiseCheckQuantile;
   numData = numel(data);
   checkInd = 1 + round( (numData-1) * checkP );
   checkVal = data(checkInd);
@@ -364,30 +375,6 @@ while n1 < n1Stop
     n1 = n1Barrier;    
   end
 end
-end
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function freq = getSpikeFrequency(times, tFinal)
-  if isempty( times ) || tFinal == 0
-    freq = 0;
-    return
-  end
-  
-  tHalf = .5 * tFinal;
-  if isempty( find( times > tHalf, 1 ) )
-    %Check if there are no events in the second half of the experiment
-    %  if so, presumably it just took a LONG time to settle down, so
-    %  label the cell as NOT spiking
-    freq = 0;
-    return
-  end
-  
-  numEvents = numel( times );
-  if numEvents == 1
-    freq = 1000 * numEvents / tFinal;
-  else
-    freq = 1000 * (numEvents - 1) / (times(end) - times(1));
-  end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
