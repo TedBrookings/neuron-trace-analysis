@@ -1,160 +1,191 @@
-function varargout = PlotGetSpikes( dt, v, spike, options, burst )
-% PlotGetSpikes(dt, v, spike, options, burst)
+% fig = PlotGetSpikes( t, v, spike, burst, varargin )
 % plot spike info (and optionally bursts) on top of voltage trace
 %  INPUTS:
-%   -t:  time array (ms)
-%   -v:  voltage trace array (mV)
+%   -t: 1xtraceLen time array (ms) or sampleInterval (ms)
+%   -v: voltage trace array (mV)
 %   -spike: structure with spike information, as calculated by GetSpikes.m
-%   -options: structure with detection/plot options
-%   OPTIONAL:
-%   -burst:  structure with burst information, as caculated by AnalyzeBurst.m
+%   -burst: structure with burst information, as caculated by AnalyzeBurst.m
+%           (if omitted or empty, no bursts are plotted)
+function varargout = PlotGetSpikes( dt, v, spike, burst, varargin )
+  parser = inputParser();
+  parser.KeepUnmatched = true;
 
-if length(dt) == 1
-  % passed dt
-  dt = dt / 1000; % convert to sec
-  tFinal = dt * (length(v) - 1);
-  t = 0:dt:tFinal;
-else
-  % passed t (as dt)
-  t = 0.001 * dt;
-  if t(1) ~= 0
-    t = t - t(1);
-  end
-  dt = (t(end) - t(1)) / (length(v) - 1);
-end
+  parser.addParameter( 'plotSubject', '' )
+  parser.addParameter( 'timesOnly', false )
+  parser.addParameter( 'spikeShapeMarkerSize', 6 )
+  parser.addParameter( 'labelFontSize', 18 )
   
-spikeTimes = spike.times / 1000;
-if nargin == 5
-  % using burst information
-  burstTimes = burst.Times / 1000;
-  burstLen = burst.Durations.list / 1000;
-  baseTitle = 'Spike/Burst Detection';
-else
-  % only using spike information
-  baseTitle = 'Spike Detection';
-end
+  parser.parse( varargin{:} )
+  options = parser.Results;
+  options.plotBurst = exist( 'burst', 'var' ) && ~isempty( burst ) ...
+            && ~isequal( burst, struct() );
 
-% define upper and lower voltages of lines indicating spike times
-top = max(v);
-bottom = min(v);
-delta = 0.1 * (top - bottom);
-bottom = bottom - delta;
-top = top + delta;
-
-% make the title
-if ischar(options.plotSubject)
-  titleStr = [options.plotSubject, ': ', baseTitle];
-else
-  titleStr = baseTitle;
-end
-
-if ~isfield(options, 'timesOnly')
-  options.timesOnly = false;
-end
-if ~options.timesOnly
-  % get some shape information
-  if isfield(spike.maxV.v, 'list')
-    % spike is "structified"
-    vMax = spike.maxV.v.list;
-    vPreMaxK = spike.preMaxCurve.v.list;
-    vPostMaxK = spike.postMaxCurve.v.list;
-    vPreMinV = spike.preMinV.v.list;
-    vPostMinV = spike.postMinV.v.list;
-    vMaxDeriv = spike.maxDeriv.v.list;
-    vMinDeriv = spike.minDeriv.v.list;
+  % get time vector (and convert units to seconds)
+  [t, dt] = getTimeVec( dt, v );
+  
+  % create figure, axes, and title for plotting
+  [fig, ax, titleStr] = createFig( options );
+  
+  % plot bursts if there are any detected
+  if options.plotBurst
+    legendEntries = plotBurst( ax, burst, v );
   else
-    vMax = spike.maxV.v;
-    vPreMaxK = spike.preMaxCurve.v;
-    vPostMaxK = spike.postMaxCurve.v;
-    vPreMinV = spike.preMinV.v;
-    vPostMinV = spike.postMinV.v;
-    vMaxDeriv = spike.maxDeriv.v;
-    vMinDeriv = spike.minDeriv.v;
+    legendEntries = {};
   end
-end 
+  
+  % draw the voltage trace in white:
+  voltageLine = plot( ax, t, v, 'w-' );
+  % Exclude line from legend
+  voltageLine.Annotation.LegendInformation.IconDisplayStyle = 'off';
+  
+  if options.timesOnly
+    % plot spikes, but only show the spike times
+    spikeLegendEntries = plotSpikesTimesOnly( ax, t, v, spike );
+  else
+    % plot spikes with spike shape info
+    spikeLegendEntries = plotSpikesShapeInfo( ax, t, v, spike, options );
+  end  
+  legendEntries = [ legendEntries, spikeLegendEntries ];
+  
+  if ~isempty( legendEntries )
+    legend( ax, legendEntries{:}, 'Location', 'SouthOutside', ...
+            'Orientation', 'Horizontal' )
+  end
+  
+  % add title and labels to axes
+  addLabels( ax, titleStr, options )
+  hold( ax, 'off' );
+  if nargout > 0
+    varargout = { fig };
+  else
+    varargout = {};
+  end
+end
 
-% create a new figure, name it, and make it ready for plotting
-h = NamedFigure(titleStr);
-set(h, 'WindowStyle', 'docked');
-clf; % clear the plot, in case something is already there
-whitebg(h, 'k');  % make the background black
-hold on;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% get time vector (and convert units to seconds)
+function [t, dt] = getTimeVec( dt, v )
+  if numel( dt ) == 1
+    % passed dt
+    dt = dt / 1000; % convert to sec
+    tFinal = dt * (numel( v ) - 1);
+    t = 0:dt:tFinal;
+  else
+    % passed t (as dt)
+    t = 0.001 * dt;
+    if t(1) ~= 0
+      t = t - t(1);
+    end
+    dt = (t(end) - t(1)) / (numel( v ) - 1);
+  end
+end
 
-legendEntries = {};
-if nargin == 5
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% create figure, axes, and title for plotting
+function [fig, ax, titleStr] = createFig( options )
+  if options.plotBurst
+    % using burst information
+    baseTitle = 'Spike/Burst Detection';
+  else
+    % only using spike information
+    baseTitle = 'Spike Detection';
+  end
+  % make the title
+  if ischar( options.plotSubject ) && ~isempty( options.plotSubject )
+    titleStr = [options.plotSubject, ': ', baseTitle];
+  else
+    titleStr = baseTitle;
+  end
+  
+  % create a new figure, name it, and make it ready for plotting
+  fig = NamedFigure( titleStr ); clf( fig )
+  fig.WindowStyle = 'docked';
+  whitebg(fig, 'k');  % make the background black
+  ax = subplot( 1,1,1, 'Parent', fig ); hold( ax, 'on' )
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% plot bursts if there are any detected
+function legendEntries = plotBurst( ax, burst, v )
+  % get burst times
+  burstTimes = burst.Times ./ 1000;
+  burstLen = burst.Durations.list ./ 1000;
   % first draw blue rectangle to signify burst times
-  numBursts = length(burstTimes);
+  numBursts = numel( burstTimes );
   if numBursts > 0
-    burstGroup = hggroup;
+    % define upper and lower voltages of lines indicating burst times
+    [top, bottom] = getAnnotationTopAndBottom( v );
+    
+    burstGroup = hggroup( 'parent', ax );
     for n = 1:numBursts
       tLow = burstTimes(n);
       tHigh = tLow + burstLen(n);
-      fill([tLow, tHigh, tHigh, tLow], [bottom, bottom, top, top], 'b', ...
-        'Parent', burstGroup);
+      fill( [tLow, tHigh, tHigh, tLow], [bottom, bottom, top, top], ...
+            'b', 'Parent', burstGroup );
     end
-    set(get(get(burstGroup,'Annotation'),'LegendInformation'),...
-      'IconDisplayStyle','on');
-    legendEntries = [legendEntries, 'Burst'];
-  end
-end
-
-numSpikes = length(spikeTimes);
-
-if options.timesOnly
-  % no shape information, just mark spikes
-  for n=1:numSpikes
-    % overlay red lines indicating spikes
-    plot([spikeTimes(n), spikeTimes(n)], [bottom,top], 'r-');
-  end
-  
-  % finally draw the voltage trace in white:
-  plot(t, v, 'w-');
-else
-  % we have shape information, show some of it
-  
-  % draw the voltage trace in white:
-  voltageLine = plot(t, v, 'w-');
-  set(get(get(voltageLine,'Annotation'),'LegendInformation'),...
-    'IconDisplayStyle','off'); % Exclude line from legend
-
-  plot( spike.preMaxCurve.t ./ 1000, vPreMaxK, 'yo', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'y' )
-  plot( spike.postMaxCurve.t ./ 1000, vPostMaxK, 'ys', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'y' )
-  plot( spike.maxDeriv.t ./ 1000, vMaxDeriv, 'co', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'c' )
-  plot( spike.minDeriv.t ./ 1000, vMinDeriv, 'cs', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'c')
-  n1 = spike.n1List; n2 = spike.n2List;
-  plot( t(n1), v(n1), 'mo', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'm' )
-  plot( t(n2), v(n2), 'ms', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'm' )
-  
-  plot( spike.maxV.t ./ 1000, vMax, 'ro', ...
-        'MarkerSize', 6, 'MarkerFaceColor', 'r' )
-end
-
-
-if numSpikes > 0
-  if options.timesOnly
-    legendEntries = [legendEntries, 'spike'];
+    burstGroup.Annotation.LegendInformation.IconDisplayStyle = 'on';
+    legendEntries = {'Burst'};
   else
-    legendEntries = [legendEntries, ...
-      { 'pre max K', 'post max K', 'max dV', 'min dV', ...
-        'bracketStart', 'bracketEnd', 'maxV' } ];
+    legendEntries = {};
   end
-end
-if ~isempty(legendEntries)
-  legend(legendEntries{:}, 'Location', 'SouthOutside', 'Orientation', 'Horizontal')
+end  
+  
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% define upper and lower voltages of lines indicating burst times
+function [top, bottom] = getAnnotationTopAndBottom( v )
+  top = max( v );
+  bottom = min( v );
+  delta = 0.1 * (top - bottom);
+  bottom = bottom - delta;
+  top = top + delta;
 end
 
-% axis labels and title
-xlabel('Time (s)', 'FontSize', 18)
-ylabel('Voltage (mV)', 'FontSize', 18)
-title(RealUnderscores(titleStr), 'FontSize', 18)
-hold off;
-if nargout
-  varargout = {h};
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% plot spikes, but only show the spike times
+function legendEntries = plotSpikesTimesOnly( ax, t, v, spike )
+  % no shape information, just mark spikes
+  if isempty( spike.ind )
+    legendEntries = {};
+  else
+    plot( ax, t(spike.ind), v(spike.ind), 'ro', 'MarkerFaceColor', 'r' )
+    legendEntries = {'spike peak'};
+  end
 end
-return
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% plot spikes with spike shape info
+function legendEntries = plotSpikesShapeInfo( ax, t, v, spike, options )
+  if isempty( spike.maxV.t )
+    legendEntries = {};
+    return
+  end
+  markerSize = options.spikeShapeMarkerSize;
+  plot( ax, spike.preMaxCurve.t ./ 1000, spike.preMaxCurve.v, 'yo', ...
+        'MarkerSize', markerSize, 'MarkerFaceColor', 'y' )
+  plot( ax, spike.postMaxCurve.t ./ 1000, spike.postMaxCurve.v, 'ys', ...
+        'MarkerSize', markerSize, 'MarkerFaceColor', 'y' )
+  plot( ax, spike.maxDeriv.t ./ 1000, spike.maxDeriv.v, 'co', ...
+        'MarkerSize', markerSize, 'MarkerFaceColor', 'c' )
+  plot( ax, spike.minDeriv.t ./ 1000, spike.minDeriv.v, 'cs', ...
+        'MarkerSize', markerSize, 'MarkerFaceColor', 'c')
+  n1 = spike.n1List; n2 = spike.n2List;
+  plot( ax, t(n1), v(n1), 'mo', ...
+        'MarkerSize', markerSize, 'MarkerFaceColor', 'm' )
+  plot( ax, t(n2), v(n2), 'ms', ...
+       'MarkerSize', markerSize, 'MarkerFaceColor', 'm' )
+    
+  plot( ax, spike.maxV.t ./ 1000, spike.maxV.v, 'ro', ...
+        'MarkerSize', markerSize, 'MarkerFaceColor', 'r' )
+  
+  legendEntries = { 'pre max K', 'post max K', 'max dV', 'min dV', ...
+                    'bracketStart', 'bracketEnd', 'maxV' };
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
+% add title and labels to axes
+function addLabels( ax, titleStr, options )
+  xlabel( ax, 'Time (s)', 'FontSize', options.labelFontSize )
+  ylabel( ax, 'Voltage (mV)', 'FontSize', options.labelFontSize )
+  title( ax, RealUnderscores( titleStr ), ...
+         'FontSize', options.labelFontSize )
+end

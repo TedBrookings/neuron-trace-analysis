@@ -125,8 +125,8 @@ function spike = GetSpikes(dT, v, varargin)
   end
 
   callstack = dbstack;
-  if needPlot(options, callstack)
-    hSpikes = PlotGetSpikes( dT, v, spike, options );
+  if needPlot( options, callstack )
+    hSpikes = PlotGetSpikes( dT, v, spike, [], options );
     
     % link relevant time axis together
     if options.debugPlots
@@ -397,7 +397,7 @@ function fig = plotGetSpikeTimes( dT, v, deriv, deriv2, ...
                                   lowCutoff, highCutoff, options )
   titleStr = makeTitle('Derivatives', options);
 
-  fig = NamedFigure(titleStr); fig.WindowStyle = 'docked'; clf( fig )
+  fig = NamedFigure( titleStr ); fig.WindowStyle = 'docked'; clf( fig )
   ax1 = subplot( 2, 1, 1, 'Parent', fig );
   
   numV = numel( v );
