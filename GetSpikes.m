@@ -126,7 +126,7 @@ function spike = GetSpikes(dT, v, varargin)
 
   callstack = dbstack;
   if needPlot( options, callstack )
-    hSpikes = PlotGetSpikes( dT, v, spike, [], options );
+    hSpikes = PlotSpikes( dT, v, spike, [], options );
     
     % link relevant time axis together
     if options.debugPlots

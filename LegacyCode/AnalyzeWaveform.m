@@ -130,7 +130,7 @@ structOut.medianV = median(v);
 
 if needPlot(options)
   dT = t(2) - t(1);
-  hSpikes = PlotGetSpikes( dT, v, spikes, burst, options );
+  hSpikes = PlotSpikes( dT, v, spikes, burst, options );
   
   % link relevant time axis together
   if options.debugPlots

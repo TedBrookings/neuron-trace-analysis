@@ -1,4 +1,4 @@
-% fig = PlotGetSpikes( t, v, spike, burst, varargin )
+% fig = PlotSpikes( t, v, spike, burst, varargin )
 % plot spike info (and optionally bursts) on top of voltage trace
 %  INPUTS:
 %   -t: 1xtraceLen time array (ms) or sampleInterval (ms)
@@ -6,7 +6,7 @@
 %   -spike: structure with spike information, as calculated by GetSpikes.m
 %   -burst: structure with burst information, as caculated by AnalyzeBurst.m
 %           (if omitted or empty, no bursts are plotted)
-function varargout = PlotGetSpikes( dt, v, spike, burst, varargin )
+function varargout = PlotSpikes( dt, v, spike, burst, varargin )
   parser = inputParser();
   parser.KeepUnmatched = true;
 
