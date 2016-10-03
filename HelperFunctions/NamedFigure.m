@@ -4,6 +4,9 @@
 %  creates one, names it, and returns a handle
 %    INPUT:
 %     -name   The name of the figure
+%    OPTIONS:
+%      additional key,value pairs will be passed to the figure() function,
+%      allowing the setting of figure properties at creation time
 %    OUTPUT:
 %     -fig    Handle to the figure
 function varargout = NamedFigure( name, varargin )
@@ -21,13 +24,11 @@ function varargout = NamedFigure( name, varargin )
     
     % create the figure
     fig = figure( 'Name', name, varargin{:} );
-    
-    % set convenient figure properties
-    set( fig, 'Name', name )
   else
-    % figure exists, get it
-    set( 0, 'CurrentFigure', fig )
+    % figure exists, set it to current figure
+    set( 0, 'CurrentFigure', fig(1) )
     if nargin > 1
+      % update figure properties
       assert( mod( numel( varargin ), 2 ) == 0, ...
               'Figure options should be key, value pairs' )
       for n = 1:2:numel( varargin )

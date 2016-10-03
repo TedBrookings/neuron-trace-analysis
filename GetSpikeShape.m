@@ -15,6 +15,8 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   parser.addParameter( 'bracketWidth', [] )
   parser.addParameter( 'removeOutliers', true )
   parser.addParameter( 'outlierFraction', 0.33 )
+  parser.addParameter( 'noiseThreshold', [] )
+  parser.addParameter( 'checkHeights', [] )
   
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -24,8 +26,13 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
     [deriv, deriv2] = getDerivs( n1List, n2List, dT, v, options );
   end
   
-  [minSpikeHeight, checkHeights] = getNoiseHeight( v, n1List, n2List, ...
-                                                   options );
+  if isempty( options.noiseThreshold ) || isempty( options.checkHeights )
+    [minSpikeHeight, checkHeights] = getNoiseHeight( v, n1List, n2List, ...
+                                                     options );
+  else
+    minSpikeHeight = max( options.minSpikeHeight, options.noiseThreshold );
+    checkHeights = options.checkHeights;
+  end
   %minSpikeHeight = getNoiseHeightFast(v, n1List, n2List, options);
   if options.debugPlots
     fprintf( 'Noise height = %g\n', minSpikeHeight )
@@ -191,13 +198,13 @@ function [deriv, deriv2] = getDerivs( n1List, n2List, dT, v, options )
     if isempty( n1List )
       maxTimeWidth = 3.0;
     else
-      maxTimeWidth = dT * max( n2List - n1List );
+      maxTimeWidth = dT * median( n2List - n1List );
     end
   else
     maxTimeWidth = options.bracketWidth;
   end
   nyquistRate = 1.0 / (2 * dT);
-  fStop = min(nyquistRate * 2/3, 1.0 / maxTimeWidth);
+  fStop = min( nyquistRate * 2/3, 1.0 / maxTimeWidth );
   fPass = fStop;
   %nyquistFrac = fStop / nyquistRate;
   [deriv, deriv2] = DerivFilter(v, dT, fPass, fStop);

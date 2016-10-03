@@ -51,17 +51,49 @@
 %If a feature is not detected, relevant frequencies are set to
 %  zero, and relevant lists are empty
 %
-function spike = GetSpikes(dT, v, varargin)
-  if nargin < 2
-    help GetSpikes
-    error('Invalid number of arguments.')
+function spike = GetSpikes( dT, v, varargin )
+  parser = inputParser();
+  parser.KeepUnmatched = true;
+  parser.addParameter( 'plotSubject', false )
+  parser.addParameter( 'lowCutoff', NaN )
+  parser.addParameter( 'highCutoff', NaN )
+  parser.addParameter( 'bracketWidth', 3.0 )
+  parser.addParameter( 'minCutoffDiff', 0.1 )
+  parser.addParameter( 'minSpikeHeight', 4.0 )
+  parser.addParameter( 'minSpikeAspect', 0.0 )
+  parser.addParameter( 'noiseCheckQuantile', 0.67 )
+  parser.addParameter( 'pFalseSpike', 1.0e-3 )
+  parser.addParameter( 'distributionCheckProb', 0.5 )
+  parser.addParameter( 'recursive', false )
+  parser.addParameter( 'discountNegativeDeriv', false )
+  parser.addParameter( 'removeOutliers', true )
+  parser.addParameter( 'outlierFraction', 0.33 )
+  parser.addParameter( 'findMinis', false )
+  parser.addParameter( 'debugPlots', false )
+  parser.addParameter( 'useDerivatives', true )
+  parser.addParameter( 'slowTimeFactor', 10.0 )
+  parser.addParameter( 'minSpikeWidth', [] )
+
+  parser.parse( varargin{:} )
+  options = parser.Results;
+  
+  if options.findMinis
+    %warning( 'Calling GetSpikes() with findMinis=true is deprecated. Change code to call GetMinis' )
+    useDerivatives = false;
+    spike = GetMinis( dT, v, varargin{:} );
+    return
   end
+  
   if numel( dT ) > 1
     % user passed in array of time, rather than dT
     if numel( dT ) ~= numel( v )
       error( 'Time and Voltage arrays have different length!' )
     end
     dT = (dT(end) - dT(1)) / (length(dT) - 1);
+  end
+  if dT < .005
+    warning( 'WAVEFORM:SmallDT', ...
+             'Very small dT (%g). Note dT should be in ms.', dT )
   end
   
   if size( v,1 ) > 1
@@ -72,58 +104,20 @@ function spike = GetSpikes(dT, v, varargin)
     end
   end
 
-  % set the default options
-  defaultOptions = { ...
-    'plotSubject', false, ...
-    'lowCutoff', NaN, ...
-    'highCutoff', NaN, ...
-    'bracketWidth', 3.0, ...
-    'minCutoffDiff', 0.1, ...
-    'minSpikeHeight', 4.0, ...
-    'minSpikeAspect', 0.0, ...
-    'noiseCheckQuantile', 0.67, ...
-    'pFalseSpike', 1.0e-3, ...
-    'distributionCheckProb', 0.5, ...
-    'recursive', false, ...
-    'discountNegativeDeriv', false, ...
-    'removeOutliers', true, ...
-    'outlierFraction', 0.33, ...
-    'findMinis', false, ...
-    'debugPlots', false ...
-  };
-  % get the options overrides from varargin
-  [options, modified] = GetOptions( defaultOptions, varargin, true );
-
-  if options.findMinis
-    % if finding minis, change a few of the options (if not set by user)
-    miniOptions = struct( ...
-      'bracketWidth', 100.0, ...
-      'minCutoffDiff', 0.001, ...
-      'minSpikeHeight', 0.0, ...
-      'minSpikeAspect', 0.0, ...
-      'pFalseSpike', 0.25, ...
-      'discountNegativeDeriv', true, ...
-      'recursive', true, ...
-      'outlierFraction', 0, ...
-      'noiseCheckQuantile', 0.55 ...
-     );
-    for fName = fieldnames( miniOptions )'
-      if ~modified.(fName{1})
-        options.(fName{1}) = miniOptions.(fName{1});
+  %First get the spike times
+  if options.useDerivatives
+    spike = getSpikeTimesDerivThreshold( dT, v, options );
+    if options.recursive
+      oldSpikeTimes = [];
+      while numel( oldSpikeTimes ) < numel( spike.times )
+        oldSpikeTimes = spike.times;
+        spike = getSpikeTimesDerivThreshold( dT, v, options, spike );
       end
     end
+  else
+    spike = getSpikeTimesVoltageThreshold( dT, v, options );
   end
-
-  %First get the spike times
-  spike = getSpikeTimesThreshold( dT, v, options );
-  if options.recursive
-    oldSpikeTimes = [];
-    while numel( oldSpikeTimes ) < numel( spike.times )
-      oldSpikeTimes = spike.times;
-      spike = getSpikeTimesThreshold( dT, v, options, spike );
-    end
-  end
-
+  
   callstack = dbstack;
   if needPlot( options, callstack )
     hSpikes = PlotSpikes( dT, v, spike, [], options );
@@ -141,13 +135,193 @@ function spike = GetSpikes(dT, v, varargin)
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Find spikes by looking for large voltage deflections on time-scale
+% appriopriate for spikes
+function spike = getSpikeTimesVoltageThreshold( dT, v, options )
+  fastTime = options.bracketWidth / options.slowTimeFactor;
+  fastTime = max( fastTime, 2 * dT );
+  slowTime = max( options.bracketWidth, fastTime * 3 );
+  filtFunc = GetFilterFunction( [fastTime, -slowTime] ./ dT );
+  vFilt = filtFunc( v );
+  
+  highV = vFilt >= 0;
+  n1List = find( highV & [true, ~highV(1:end-1)] );
+  n2List = find( highV & [~highV(2:end), true] );
+    
+  [n1List, n2List] = extendBrackets( n1List, n2List, vFilt );
+  heights = arrayfun( @(i1,i2) max( vFilt(i1:i2) ) - max( vFilt(i1), vFilt(i2) ), n1List, n2List );
+  [noisePeak, ~, highSigma] = ...
+    FindPeak( sort( heights ), options.noiseCheckQuantile );
+  
+  independentSamplesPerSec = 1000 / options.bracketWidth;
+  minRareness = -expm1( log1p( -options.pFalseSpike ) ...
+                         / independentSamplesPerSec );
+  wantedNumSigma = sqrt(2) * erfcinv( minRareness );
+  
+  fastFilt = GetFilterFunction( [0, -fastTime] ./ dT );
+  sigmaFast = std( fastFilt( v ) );
+  options.noiseThreshold = sigmaFast * wantedNumSigma;
+  
+  %vFiltThreshold = noisePeak + highSigma * wantedNumSigma;
+  vFiltThreshold = options.noiseThreshold;
+  bad = heights < vFiltThreshold;
+  n1List(bad) = []; n2List(bad) = [];
+  if isempty( options.minSpikeWidth )
+    minSpikeWidth = 4 * dT;
+  else
+    minSpikeWidth = options.minSpikeWidth;
+  end
+  bad = n2List - n1List < minSpikeWidth / dT;
+  n1List(bad) = []; n2List(bad) = [];
+  
+  if options.debugPlots
+    fig = NamedFigure( 'vFilt', 'WindowStyle', 'docked' ); clf( fig );
+    ax = subplot( 1,1,1, 'parent', fig ); hold( ax, 'on' )
+    t = (1e-3 * dT) .* (0:(numel(v)-1));
+    plot( ax, t, vFilt );
+    plot( ax, t(n1List), vFilt(n1List), 'rx' )
+    plot( ax, t(n2List), vFilt(n2List), 'ro' )
+
+
+    
+    [density, vPoints] = KernelDensity( heights );
+    yRange = [0, max( density )];
+    titleStr = makeTitle( 'Spike Thresholds', options );
+    fig = NamedFigure( titleStr, 'WindowStyle', 'docked' ); clf(fig)
+    ax = subplot( 1,2,1, 'Parent', fig ); hold( ax, 'on' )
+    area( ax, vPoints, density );
+    plot(ax, [noisePeak, noisePeak], yRange, 'k--', 'LineWidth', 2')
+    plot(ax, [vFiltThreshold, vFiltThreshold], yRange, 'g-')
+    hold(ax, 'off')
+    xlabel( ax, 'vFilt (mV)' )
+    ylabel( ax, 'Relative Frequency' )
+    title( ax, RealUnderscores( titleStr ) )
+    legend( ax, { 'vFilt', 'vTypical', 'vFiltThreshold' }, ...
+            'Location', 'Best' )
+    axis( ax, 'tight' )
+  end
+  %{
+  filterVector = getSpikeFilter( n1List, n2List, v );
+  spikeFilterFunc = GetFilterFunction( [], 'filterVector', flip( filterVector ) );
+  vSpikeFilt = spikeFilterFunc( v );
+    
+  %highV = vSpikeFilt >= options.noiseThreshold;
+  highV = vSpikeFilt >= 0;
+  n1List = find( highV & [true, ~highV(1:end-1)] );
+  n2List = find( highV & [~highV(2:end), true] );
+  
+  fig = NamedFigure( 'vSpikeFilt' ); clf( fig );
+  ax = subplot( 1,1,1, 'parent', fig ); hold( ax, 'on' )
+  t = (1e-3 * dT) .* (0:(numel(v)-1));
+  plot( ax, t, vSpikeFilt );
+  plot( ax, t(n1List), vSpikeFilt(n1List), 'rx' )
+  plot( ax, t(n2List), vSpikeFilt(n2List), 'ro' )
+  
+  [n1List, n2List] = extendBrackets( n1List, n2List, vSpikeFilt );
+  heights = arrayfun( @(i1,i2) max( vSpikeFilt(i1:i2) ), n1List, n2List );
+  [noisePeak, ~, highSigma] = ...
+    FindPeak( sort( heights ), options.noiseCheckQuantile );
+  
+  vFiltThreshold = noisePeak + highSigma * wantedNumSigma;
+  bad = heights < vFiltThreshold;
+  n1List(bad) = []; n2List(bad) = [];
+  if isempty( options.minSpikeWidth )
+    minSpikeWidth = 4 * dT;
+  else
+    minSpikeWidth = options.minSpikeWidth;
+  end
+  bad = n2List - n1List < minSpikeWidth / dT;
+  n1List(bad) = []; n2List(bad) = [];
+
+  %}
+  %[n1List, n2List] = extendBrackets( n1List, n2List, v );
+  options.checkHeights = arrayfun( @(n1, n2) max( v(n1:n2) ) - max( v(n1), v(n2) ), ...
+                                   n1List, n2List );
+  
+  %  Get spike shape
+  deriv = []; deriv2 = [];
+  spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, options );
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function [n1List, n2List] = extendBrackets( n1List, n2List, v )
+  leftBarrier = 0;
+  for spikeInd = 1:numel( n1List )
+    n1 = n1List(spikeInd);
+    while n1-1 > leftBarrier
+      if v(n1-1) < v(n1)
+        n1 = n1-1;
+      elseif n1-2 > leftBarrier && v(n1-2) < v(n1)
+        n1 = n1-2;
+      else
+        break
+      end
+    end
+    n1List(spikeInd) = n1;
+    
+    if spikeInd == numel( n1List )
+      rightBarrier = numel( v ) + 1;
+    else
+      rightBarrier = n1List(spikeInd+1);
+    end
+    n2 = n2List(spikeInd);
+    while n2+1 < rightBarrier
+      if v(n2+1) < v(n2)
+        n2 = n2+1;
+      elseif n2+2 < rightBarrier && v(n2+2) < v(n2)
+        n2 = n2+2;
+      else
+        break
+      end
+    end
+    n2List(spikeInd) = n2;
+    
+    leftBarrier = n2List(spikeInd);
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function filterVector = getSpikeFilter( n1List, n2List, v )
+  % get a mildly low-pass filtered voltage trace for alignment purposes
+  filtFunc = GetFilterFunction( 5 );
+  vFilt = filtFunc( v );
+
+  [~, maxInd] = arrayfun( @(n1,n2) max( vFilt(n1:n2) ), n1List, n2List );
+  maxInd = maxInd - 1 + n1List;
+  wHalf = round( max( n2List - n1List ) ); wFull = 1 + 2 * wHalf;
+  
+  numSpikes = numel( n1List ); numV = numel( v );
+  waveforms(numSpikes,wFull) = 0;
+  for k = 1:numSpikes
+    i1 = maxInd(k) - wHalf; i2 = maxInd(k) + wHalf;
+    v_k = v(i1:i2);
+    v_k = v_k - median( v_k );
+    maxV = max( v_k ); if maxV > 1e-3, v_k = v_k ./ maxV; end    
+    if i1 < 1
+      numBad = 1 - i1;
+      waveforms(k,1:numBad) = NaN;
+      waveforms(k,numBad+1:end) = v_k;
+    elseif i2 > numV
+      numBad = i2 - numV;
+      waveforms(k,end-numBad+1:end) = NaN;
+      waveforms(k,1:end-numBad) = v_k;
+    else
+      waveforms(k,:) = v_k;
+    end
+  end
+  
+  filterVector = mean( waveforms, 1, 'omitnan' );
+  meanV = mean( filterVector );
+  filterVector = filterVector - meanV;
+  spikeNorm = norm( filterVector );
+  filterVector = filterVector ./ spikeNorm;
+  filterVector = filterVector .* max( filterVector );
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Finds spikes by looking for points where derivative is large
 % (positive) followed quickly by a large (negative) derivative.
-function spike = getSpikeTimesThreshold( dT, v, options, oldSpike )
-  if dT < .005
-    warning( 'WAVEFORM:SmallDT', ...
-             'Very small dT (%g). Note dT should be in ms.', dT )
-  end
+function spike = getSpikeTimesDerivThreshold( dT, v, options, oldSpike )
   if nargin < 4
     oldSpike = [];
   end
@@ -161,6 +335,7 @@ function spike = getSpikeTimesThreshold( dT, v, options, oldSpike )
   [n1List, n2List] = bracketSpikes( v, deriv, maxIndDiff, ...
                                     lowCutoff, highCutoff );
   
+
   %  Get spike shape
   spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, options );
     
@@ -252,12 +427,12 @@ function [lowCutoff, highCutoff] = getAutoCutoffs(dT, deriv, ...
   % number of *effective* trace points in a bracketed spike
   nBracket = nyquistFrac * options.bracketWidth / dT;
   % length of trace
-  len = length(sortDeriv);
+  len = numel( sortDeriv );
   logOdds = 4 * log(1 - options.pFalseSpike) / len / nBracket;
   
   % this is how rare a derivative has to be (either positive or negative) to
   % achieve the given false-detection probability
-  minRareness = sqrt(-logOdds);
+  minRareness = sqrt( -logOdds );
   
   % compute approximate 1/2-sigma levels for positive and negative
   % derivatives, based on presumably nearly-gaussian small derivatives near
@@ -270,20 +445,7 @@ function [lowCutoff, highCutoff] = getAutoCutoffs(dT, deriv, ...
     wantedNumSigma = min( 1, wantedNumSigma );
   end
   lowCutoff = min( [0, peak - wantedNumSigma * sigmaMinus] );
-  %{ 
-  highDV = sortDeriv(sortDeriv >= peak) - peak;
-  highCutoff = peak + findThresh( highDV, minRareness, options );
-  highCutoff = max(0, highCutoff);
-  
-  lowDV = flip( peak - sortDeriv(sortDeriv <= peak) );
-  [lowThresh, lowSigma] = findThresh( lowDV, minRareness );
-  if options.discountNegativeDeriv
-    lowCutoff = peak - min(lowThresh, lowSigma);
-  else
-    lowCutoff = peak - lowThresh;
-  end
-  lowCutoff = min(0, lowCutoff);
-  %}
+
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -315,6 +477,8 @@ function y = highPassFilter( y, halfFilterLength )
   % 3. return valid part of convolution between padded-signal and filter
   y = conv( y, filt, 'valid' );
 end
+
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Get a list of putative spikes, bracketed between n1 and n2
