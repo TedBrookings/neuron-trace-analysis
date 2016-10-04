@@ -111,7 +111,7 @@ end
 function varargout = fitIsiCutoffTwoPopulation( times, options )
   isi = diff( times );
 
-  [isiDensity, isis] = KernelDensity( isi, [], 0.4 );
+  [isiDensity, isis] = KernelDensity( isi, [], 'smoothingScale', 0.4 );
   isiDensity = isiDensity ./ sum( isiDensity );
   sigmaIsis = std( isi );
   isi1 = isis(1) + sigmaIsis;
@@ -192,9 +192,9 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function varargout = fitRateCutoffTwoPopulation( times, options )
   isi = diff( times );
-  [isiDensity, isis] = KernelDensity( isi, [], 0.4 );
+  [isiDensity, isis] = KernelDensity( isi, [], 'smoothingScale', 0.4 );
   rate = 1.0 ./ isi; rates = linspace( 0, max( rate ), 1000 );
-  [rateDensity, rates] = KernelDensity( rate, rates, 0.4 );
+  [rateDensity, rates] = KernelDensity( rate, rates, 'smoothingScale', 0.4 );
   rateDensity = rateDensity ./ sum( rateDensity );
   
   sigmaRates = std( rates );
@@ -270,10 +270,10 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function varargout = fitTimesCutoffTwoPopulation( dT, v, spikes, options )
   isi = diff( spikes.times );
-  [isiDensity, isis] = KernelDensity( isi, [], 0.4 );
+  [isiDensity, isis] = KernelDensity( isi, [], 'smoothingScale', 0.4 );
   rate = getSpikeRate( dT, v, spikes, options );
-  %[rate, t] = KernelDensity( times, [], 0.2 );
-  [rateDensity, rates] = KernelDensity( rate, [], 0.1 );
+  %[rate, t] = KernelDensity( times, [], 'smoothingScale', 0.2 );
+  [rateDensity, rates] = KernelDensity( rate, [], 'smoothingScale', 0.1 );
   rateDensity = rateDensity ./ sum( rateDensity );
   
   cumulative = cumsum( rateDensity );
@@ -360,7 +360,7 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function varargout = zeroDensityCutoffTwoPopulation( dT, v, spikes, options )
   isi = diff( spikes.times );
-  [isiDensity, isis] = KernelDensity( isi, [], 0.4 );
+  [isiDensity, isis] = KernelDensity( isi, [], 'smoothingScale', 0.4 );
 
   mix1 = isiDensity; mix2 = isiDensity;
   

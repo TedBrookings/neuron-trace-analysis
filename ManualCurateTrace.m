@@ -1,5 +1,8 @@
+%waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, varargin )
+%    OR
+%waveInfo = ManualCurateTrace( fileName, [], [], varargin )
 function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
-                                        varargin )
+                                       varargin )
   parser = inputParser();
   parser.KeepUnmatched = true;
   parser.addParameter( 'dT', [] )
@@ -19,7 +22,6 @@ function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
   end
   
   [t, v] = getTraceInfo( traceInfo, options );
-  t = t(1:100000); v = v(1:100000);
   
   if ~exist( 'spikeInfo', 'var') || isempty( spikeInfo )
     spikeInfo = GetSpikes( t, v, 'plotSubject', options.debugPlots, ...
@@ -532,11 +534,11 @@ function clearCallback( buttonObj, eventData )
   if isempty( fig.UserData.burstTimes )
     return % no need to do anything
   end
-  fig.UserData.burstTimes = [];
+  fig.UserData.burstTimes = zeros(0,2);
   
   % update plot of trace
   ax = findobj( fig.Children, 'Tag', 'Curate Trace Axes' );
-  plotTrace( ax )  
+  plotTrace( ax )
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -569,11 +571,14 @@ function traceInfo = getProcessedTraceInfo( traceData )
   dT = traceData.dT; v = traceData.v; t = traceData.t;
   n1List = 1 + round( (traceData.spikeTimes(:,1)' - t(1))  ./ dT );
   n2List = 1 + round( (traceData.spikeTimes(:,3)' - t(1))  ./ dT );
-  spike = GetSpikeShape( n1List, n2List, dT, v, [], [], ...
-                         'removeOutliers', false, 'pFalseSpike', 1.99 );
+  spikes = GetSpikeShape( n1List, n2List, dT, v, [], [], ...
+                          'removeOutliers', false, 'pFalseSpike', 1.99 );
   
-  burst = traceData.burstTimes;             
+  burstStartTimes = traceData.burstTimes(:,1);
+  burstStopTimes = traceData.burstTimes(:,2);
+  bursts = GetBurstQuantification( burstStartTimes, burstStopTimes, ...
+                                   spikes, t );
   traceInfo = struct( ...
     'dT', dT, 't', t, 'v', v, ...
-    'spike', spike, 'burst', burst );
+    'spikes', spikes, 'bursts', bursts );
 end
