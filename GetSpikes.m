@@ -70,7 +70,7 @@ function spike = GetSpikes( dT, v, varargin )
   parser.addParameter( 'outlierFraction', 0.33 )
   parser.addParameter( 'findMinis', false )
   parser.addParameter( 'debugPlots', false )
-  parser.addParameter( 'useDerivatives', true )
+  parser.addParameter( 'useDerivatives', false )
   parser.addParameter( 'slowTimeFactor', 10.0 )
   parser.addParameter( 'minSpikeWidth', [] )
 
@@ -79,7 +79,6 @@ function spike = GetSpikes( dT, v, varargin )
   
   if options.findMinis
     %warning( 'Calling GetSpikes() with findMinis=true is deprecated. Change code to call GetMinis' )
-    useDerivatives = false;
     spike = GetMinis( dT, v, varargin{:} );
     return
   end
@@ -200,11 +199,11 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
             'Location', 'Best' )
     axis( ax, 'tight' )
   end
-  %{
+  
+  %{  
   filterVector = getSpikeFilter( n1List, n2List, v );
   spikeFilterFunc = GetFilterFunction( [], 'filterVector', flip( filterVector ) );
   vSpikeFilt = spikeFilterFunc( v );
-    
   %highV = vSpikeFilt >= options.noiseThreshold;
   highV = vSpikeFilt >= 0;
   n1List = find( highV & [true, ~highV(1:end-1)] );
@@ -216,8 +215,8 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
   plot( ax, t, vSpikeFilt );
   plot( ax, t(n1List), vSpikeFilt(n1List), 'rx' )
   plot( ax, t(n2List), vSpikeFilt(n2List), 'ro' )
-  
   [n1List, n2List] = extendBrackets( n1List, n2List, vSpikeFilt );
+
   heights = arrayfun( @(i1,i2) max( vSpikeFilt(i1:i2) ), n1List, n2List );
   [noisePeak, ~, highSigma] = ...
     FindPeak( sort( heights ), options.noiseCheckQuantile );
@@ -278,6 +277,29 @@ function [n1List, n2List] = extendBrackets( n1List, n2List, v )
     
     leftBarrier = n2List(spikeInd);
   end
+  
+  % try to extend n2 past AHP
+  for spikeInd = 1:numel( n2List )
+    if spikeInd == numel( n1List )
+      rightBarrier = numel( v ) + 1;
+    else
+      rightBarrier = n1List(spikeInd+1);
+    end
+    n1 = n1List(spikeInd);
+    n2 = n2List(spikeInd);
+    while n2+1 < rightBarrier
+      n2Check = n2 + round( 0.5 * (n2 - n1 ) );
+      n2Check = min( max( n2Check, n2+1 ), rightBarrier - 1 );
+      [vMin, minInd] = min( v(n2+1:n2Check) );
+      if vMin < v(n2)
+        n2 = n2 + minInd;
+      else
+        break
+      end
+    end
+    n2List(spikeInd) = n2;
+    
+  end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -335,6 +357,7 @@ function spike = getSpikeTimesDerivThreshold( dT, v, options, oldSpike )
   [n1List, n2List] = bracketSpikes( v, deriv, maxIndDiff, ...
                                     lowCutoff, highCutoff );
   
+  figure ; plot( v ); hold on ; plot( n1List(1):n2List(1), v(n1List(1):n2List(1)), 'r-' )
 
   %  Get spike shape
   spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, options );

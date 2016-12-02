@@ -41,7 +41,6 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   
   
   [n1List, n2List] = extendBrackets( n1List, n2List, v, deriv, deriv2 );
-    
   [spike, numSpikes] = initializeSpike( n1List, n2List );
   if numSpikes == 0
     spike.frequencies = []; spike.intervals = []; spike.freq = 0;
@@ -352,6 +351,7 @@ function [noiseHeight, checkHeights] = getNoiseHeight(v, n1List, n2List,...
   end
 end
 
+%{
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % extend brackets further, to ensure all the features of the spike shape
 % can be found
@@ -387,6 +387,67 @@ function [n1List, n2List] = extendBrackets( n1List, n2List, v, deriv1, ...
     
     n2List(m) = n2;
     n1Barrier = n2 + 1;
+  end
+end
+%}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function [n1List, n2List] = extendBrackets( n1List, n2List, v, foo, bar )
+  leftBarrier = 0;
+  for spikeInd = 1:numel( n1List )
+    n1 = n1List(spikeInd);
+    while n1-1 > leftBarrier
+      if v(n1-1) < v(n1)
+        n1 = n1-1;
+      elseif n1-2 > leftBarrier && v(n1-2) < v(n1)
+        n1 = n1-2;
+      else
+        break
+      end
+    end
+    n1List(spikeInd) = n1;
+    
+    if spikeInd == numel( n1List )
+      rightBarrier = numel( v ) + 1;
+    else
+      rightBarrier = n1List(spikeInd+1);
+    end
+    n2 = n2List(spikeInd);
+    while n2+1 < rightBarrier
+      if v(n2+1) < v(n2)
+        n2 = n2+1;
+      elseif n2+2 < rightBarrier && v(n2+2) < v(n2)
+        n2 = n2+2;
+      else
+        break
+      end
+    end
+    n2List(spikeInd) = n2;
+    
+    leftBarrier = n2List(spikeInd);
+  end
+  
+  % try to extend n2 past AHP
+  for spikeInd = 1:numel( n2List )
+    if spikeInd == numel( n1List )
+      rightBarrier = numel( v ) + 1;
+    else
+      rightBarrier = n1List(spikeInd+1);
+    end
+    n1 = n1List(spikeInd);
+    n2 = n2List(spikeInd);
+    while n2+1 < rightBarrier
+      n2Check = n2 + round( 0.5 * (n2 - n1 ) );
+      n2Check = min( max( n2Check, n2+1 ), rightBarrier - 1 );
+      [vMin, minInd] = min( v(n2+1:n2Check) );
+      if vMin < v(n2)
+        n2 = n2 + minInd;
+      else
+        break
+      end
+    end
+    n2List(spikeInd) = n2;
+    
   end
 end
 
