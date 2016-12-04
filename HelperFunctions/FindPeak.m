@@ -17,6 +17,10 @@ function varargout = FindPeak( x, sigmaCheckQuantile, outlierQuantile )
   vals = linspace( x(i1), x(i2), numDensityPts );
   density = ksdensity( x, vals );
   [maxDense, maxInd] = max( density );
+  if maxInd == numDensityPts
+    halfInd = floor( numDensityPts / 2 );
+    [maxDense, maxInd] = max( density(1:halfInd) );
+  end
   peak = vals(maxInd);
 
   if nargout > 1
@@ -31,7 +35,9 @@ function varargout = FindPeak( x, sigmaCheckQuantile, outlierQuantile )
     end
     checkVal = vals(checkInd);
     sigmaPlus = (checkVal - peak) / numSigmaCheck;
-    checkInd = [];
+    if maxInd > 1
+      checkInd = [];
+    end
     while isempty( checkInd )
       numSigmaCheck = sqrt( 2.0 ) * erfinv( sigmaCheckQuantile );
       sigmaDense = maxDense * exp( -numSigmaCheck^2 / sqrt(2) );
@@ -41,7 +47,7 @@ function varargout = FindPeak( x, sigmaCheckQuantile, outlierQuantile )
       end
     end
     checkVal = vals(checkInd);
-    sigmaMinus = (peak - checkVal) / numSigmaCheck;
+    sigmaMinus = abs(peak - checkVal) / numSigmaCheck;
   else
     sigmaPlus = []; sigmaMinus = [];
   end
