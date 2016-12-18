@@ -388,8 +388,14 @@ function traceData = addBurst( traceData, t1, t2 )
   t1 = 1.0e3 * t1; t2 = 1.0e3 * t2;
   
   % insert this burst into traceInfo.burstTimes
-  burstInd = find( traceData.burstTimes(:,1) < t1, 1, 'last' );
-  if isempty( burstInd ), burstInd = 0; end
+  if isempty( traceData.burstTimes )
+    burstInd = 0;
+  else
+    burstInd = find( traceData.burstTimes(:,1) < t1, 1, 'last' );
+    if isempty( burstInd )
+      burstInd = 0;
+    end
+  end
   traceData.burstTimes = [ traceData.burstTimes(1:burstInd,:) ; ...
                            [t1, t2] ; ...
                            traceData.burstTimes(burstInd+1:end,:) ];
