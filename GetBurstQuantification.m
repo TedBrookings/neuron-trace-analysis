@@ -31,13 +31,17 @@ function bursts = GetBurstQuantification( burstStartTimes, burstStopTimes, ...
                              lastInterval ];
   end
   burstPeriods = diff( burstStartTimes );
-  burstDutyCycle = burstDurations(1:end-1) ./ burstPeriods;
-  burstRates = 1.0 ./ burstPeriods;
+  if numBursts <= 1
+    burstDutyCycle = NaN;
+    burstRates = NaN;
+  else
+    burstDutyCycle = burstDurations(1:end-1) ./ burstPeriods;
+    burstRates = 1.0 ./ burstPeriods;
+  end
   numSpikesPerBurst = cellfun( @(inds) numel( inds ), burstSpikeInds );
   numSpikesBetweenBursts = cellfun( @(inds) numel( inds ), nonBurstSpikeInds );
   inBurstSpikeRates = numSpikesPerBurst ./ burstDurations;
-  betweenBurstSpikeRates = numSpikesBetweenBursts ./ allNonBurstIntervals;
-  
+  betweenBurstSpikeRates = numSpikesBetweenBursts ./ allNonBurstIntervals;  
   
   bursts = struct( ...
     'burstSpikeInds', { burstSpikeInds }, ...

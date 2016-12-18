@@ -59,6 +59,7 @@ function spike = GetSpikes( dT, v, varargin )
   parser.addParameter( 'outlierFraction', 0.33 )
   parser.addParameter( 'pFalseSpike', 1.0e-3 )
   parser.addParameter( 'minSpikeHeight', 4.0 )
+  parser.addParameter( 'tRange', [0, Inf] )
   parser.addParameter( 'minSpikeAspect', 0.0 )
   parser.addParameter( 'lowCutoff', NaN )
   parser.addParameter( 'highCutoff', NaN )
@@ -102,8 +103,11 @@ function spike = GetSpikes( dT, v, varargin )
       v = v';
     end
   end
+  
+  % Trim unwanted parts of the voltage trace
+  [v, options] = trimUnwantedTrace( dT, v, options );
 
-  %First get the spike times
+  %Get the spike times
   if options.useDerivatives
     spike = getSpikeTimesDerivThreshold( dT, v, options );
     if options.recursive
@@ -131,6 +135,22 @@ function spike = GetSpikes( dT, v, varargin )
       linkaxes(aHandles, 'x');
     end
   end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Trim unwanted parts of the voltage trace
+function [v, options] = trimUnwantedTrace( dT, v, options )
+  if isempty( options.tRange )
+    options.tRange = [0, Inf];
+  elseif options.tRange(1) < 0
+    options.tRange(1) = 0;
+  end
+  indRange = 1 + round( options.tRange ./ (1e-3 * dT) );
+  if indRange(2) > numel( v )
+    indRange(2) = numel( v );
+  end
+  v = v(indRange(1):indRange(2));
+  options.tRange = dT .* (indRange - indRange(1));
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

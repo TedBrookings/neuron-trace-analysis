@@ -1,6 +1,9 @@
+%waveInfo = ManualCurateTrace( fileName, [], [], varargin )
+%    OR
 %waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, varargin )
 %    OR
-%waveInfo = ManualCurateTrace( fileName, [], [], varargin )
+%waveInfo = ManualCurateTrace( v, spikeInfo, burstInfo, varargin )
+% NOTE: in 3rd form must pass 'dT' as an option
 function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
                                        varargin )
   parser = inputParser();
@@ -13,6 +16,7 @@ function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
   parser.addParameter( 'buttonHeight', 35 )
   parser.addParameter( 'xPad', 3 )
   parser.addParameter( 'yPad', 3 )
+  parser.addParameter( 'tRange', [0, Inf] )
   
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -22,6 +26,8 @@ function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
   end
   
   [t, v] = getTraceInfo( traceInfo, options );
+  % Trim unwanted parts of the voltage trace
+  [t, v, options] = trimUnwantedTrace( t, v, options );
   
   if ~exist( 'spikeInfo', 'var') || isempty( spikeInfo )
     spikeInfo = GetSpikes( t, v, 'plotSubject', options.debugPlots, ...
@@ -91,6 +97,24 @@ function [t, v] = getTraceInfo( traceInfo, options )
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Trim unwanted parts of the voltage trace
+function [t, v, options] = trimUnwantedTrace( t, v, options )
+  if isempty( options.tRange )
+    options.tRange = [0, Inf];
+  elseif options.tRange(1) < 0
+    options.tRange(1) = 0;
+  end
+  dT = 1e-3 * (t(2) - t(1));
+  indRange = 1 + round( options.tRange ./ dT );
+  if indRange(2) > numel( v )
+    indRange(2) = numel( v );
+  end
+  v = v(indRange(1):indRange(2));
+  t = t(indRange(1):indRange(2));
+  options.tRange = dT .* (indRange - indRange(1));
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % nSpikesx3 matrix of times: spike start, peak, and end
 % spikePeaks: v(spike peak)
 function [spikeTimes, spikePeaks] = getSpikeTimes( t, v, spikeInfo )
@@ -106,6 +130,9 @@ end
 % nBursts x 2 matrix of times: burst start, and end
 function burstTimes = getBurstTimes( burstInfo )
   burstTimes = [ burstInfo.startTime', burstInfo.stopTime' ];
+  if isempty( burstTimes )
+    burstTimes = zeros( 0, 2 );
+  end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

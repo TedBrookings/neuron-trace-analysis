@@ -21,6 +21,11 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   parser.parse( varargin{:} )
   options = parser.Results;
   
+  if isempty( n1List )
+    [spike, ~] = initializeSpike( n1List, n2List );
+    return
+  end
+  
   if isempty( deriv )
     % calculate derivatives for spike shape info
     [deriv, deriv2] = getDerivs( n1List, n2List, dT, v, options );
@@ -39,8 +44,7 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   end
   minSpikeHeight = max( options.minSpikeHeight, minSpikeHeight );
   
-  
-  [n1List, n2List] = extendBrackets( n1List, n2List, v, deriv, deriv2 );
+  [n1List, n2List] = extendBrackets( n1List, n2List, v );
   [spike, numSpikes] = initializeSpike( n1List, n2List );
   if numSpikes == 0
     spike.frequencies = []; spike.intervals = []; spike.freq = 0;
@@ -102,7 +106,9 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
     height = maxV - vPreMaxK; % this is the relevant height
     rpp = vPostMaxK - vPreMaxK; % this is the repolarization potential
     
-    width = tMinDV - tMaxDV;
+    %width = tMinDV - tMaxDV;
+    halfMax = (vPreMaxK + maxV) / 2;
+    width = dT * getWidthAtHeight( v(nPreMaxK:nPostMin), halfMax );
     aspect = height / width;
     if aspect < options.minSpikeAspect
       % this spike is bad
@@ -193,20 +199,37 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % calculate derivatives for spike shape info
 function [deriv, deriv2] = getDerivs( n1List, n2List, dT, v, options )
-  if isempty( options.bracketWidth )
-    if isempty( n1List )
-      maxTimeWidth = 3.0;
-    else
-      maxTimeWidth = dT * median( n2List - n1List );
-    end
-  else
-    maxTimeWidth = options.bracketWidth;
-  end
+  % get average spike waveform
+  meanWave = GetAverageSpikeWaveform( v, n1List, n2List, ...
+                                      'plot', options.debugPlots );
+  % estimate full width at half max
+  w = numel( meanWave ); mid = (w+1)/2;
+  minLeft = min( meanWave(1:(mid-1)), [], 'omitnan' );
+  minRight = min( meanWave((mid+1):end), [], 'omitnan' );
+  bottom = max( minLeft, minRight );
+  peak = meanWave(mid);
+  halfMax = (bottom + peak) / 2;
+  
+  maxTimeWidth = dT * getWidthAtHeight( meanWave, halfMax );
+  % get derivatives using maxTimeWidth to choose filter parameters
   nyquistRate = 1.0 / (2 * dT);
   fStop = min( nyquistRate * 2/3, 1.0 / maxTimeWidth );
   fPass = fStop;
   %nyquistFrac = fStop / nyquistRate;
   [deriv, deriv2] = DerivFilter(v, dT, fPass, fStop);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function width = getWidthAtHeight( meanWave, height, mid )
+  % first get integer estimate
+  [~, mid] = max( meanWave );
+  n1 = find( meanWave(1:mid) <= height, 1, 'last' );
+  n2 = find( meanWave(mid:end) <= height, 1 ) + (mid-1);
+  % next interpolate
+  n1 = n1 + (height - meanWave(n1)) / (meanWave(n1+1) - meanWave(n1));
+  n2 = n2 - (height - meanWave(n2)) / (meanWave(n2-1) - meanWave(n2));
+  % get width
+  width = n2 - n1;
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -351,48 +374,8 @@ function [noiseHeight, checkHeights] = getNoiseHeight(v, n1List, n2List,...
   end
 end
 
-%{
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% extend brackets further, to ensure all the features of the spike shape
-% can be found
-function [n1List, n2List] = extendBrackets( n1List, n2List, v, deriv1, ...
-                                            deriv2 )
-  n1Barrier = 1; numV = numel( v ); numSpikes = numel( n1List );
-  for m = 1:numSpikes
-    n1 = n1List(m);
-    %while n1 > n1Barrier && ( deriv1(n1) > 0 || v(n1-1) < v(n1) || ...
-    %                          deriv2(n1) > 0 )
-    while n1 > n1Barrier && deriv1(n1) > 0 && deriv2(n1) > 0
-      n1 = n1 - 1;
-    end
-    while n1 > n1Barrier && deriv2(n1) > max( 0, deriv2(n1-1) )
-      n1 = n1 - 1;
-    end
-    n1List(m) = n1;
-    
-    n2 = n2List(m);
-    if m == numSpikes
-      n2Barrier = numV;
-    else
-      n2Barrier = n1List(m+1) - 1;
-    end
-    %while n2 < n2Barrier && ( deriv1(n2) < 0 || v(n2+1) < v(n2) || ...
-    %                          deriv2(n2) > 0 )
-    while n2 < n2Barrier && deriv1(n2) > 0 && deriv2(n2) > 0
-      n2 = n2 + 1;
-    end
-    while n2 < n2Barrier && deriv2(n2) > max( 0, deriv2(n2+1) )
-      n2 = n2 + 1;
-    end
-    
-    n2List(m) = n2;
-    n1Barrier = n2 + 1;
-  end
-end
-%}
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [n1List, n2List] = extendBrackets( n1List, n2List, v, foo, bar )
+function [n1List, n2List] = extendBrackets( n1List, n2List, v )
   leftBarrier = 0;
   for spikeInd = 1:numel( n1List )
     n1 = n1List(spikeInd);

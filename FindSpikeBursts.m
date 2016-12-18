@@ -6,6 +6,7 @@ function burstInfo = FindSpikeBursts(dT, v, spikes, varargin)
   parser.addParameter('plot', true)
   parser.addParameter('minNumSpikes', 10)
   parser.addParameter('maxFilterWidth', 500) % ms
+  parser.addParameter('minCorrect', 0.8)
   parser.addParameter('transition', '', ...
                       @(x) ismember( x, {'isi', 'rate', 'times', '', []} ) )
   
@@ -42,7 +43,13 @@ function burstInfo = FindSpikeBursts(dT, v, spikes, varargin)
           case 2, twoPop = twoPopRate;
           case 3, twoPop = twoPopTimes;
         end
-        if maxCorrect < 0.8
+        
+        if twoPop.isiCutoffFast > twoPop.isiCutoff ...
+            || twoPop.isiCutoffSlow < twoPop.isiCutoff
+          warning( 'ISI cutoffs in nonsense order' )
+          maxCorrect = 0;
+        end
+        if maxCorrect < options.minCorrect
           twoPop.isiCutoff = -Inf;
           twoPop.isiCutoffFast = -Inf;
           twoPop.isiCutoffSlow = Inf;
@@ -222,9 +229,11 @@ function varargout = fitRateCutoffTwoPopulation( times, options )
   isiCutoff = 1.0 / rateCutoff;
 
   % find dividing line where bursting is 10 times more likely
-  isiCutoffFast = 1.0 / solveCutoff( fitParams, sigmaRates, 0.05 );
+  fastRate = solveCutoff( fitParams, sigmaRates, 0.05 );
+  isiCutoffFast = 1.0 / fastRate;
   % find dividing line where non-bursting is 10 times more likely
-  isiCutoffSlow = 1.0 / solveCutoff( fitParams, sigmaRates, 20.0 );
+  slowRate = solveCutoff( fitParams, sigmaRates, 20.0 );
+  isiCutoffSlow = 1.0 / slowRate;
   
   p1 = fitParams(1); r1 = fitParams(2); s1 = fitParams(3);
   p2 = 1.0 - p1; r2 = fitParams(4); s2 = fitParams(5);
@@ -258,10 +267,13 @@ function varargout = fitRateCutoffTwoPopulation( times, options )
     plot( ax, rates, rateDensity, 'b-' );
     plot( ax, rates, finiteMixtureModel( twoPop.fitParams, rates ), 'r-' )
     plot( ax, [rateCutoff rateCutoff], [0 max(rateDensity)], 'k--' )
+    plot( ax, [slowRate slowRate], [0 max(rateDensity)], 'g--' )
+    plot( ax, [fastRate fastRate], [0 max(rateDensity)], 'c--' )
+    
     plot( ax, rates, twoPop.mix1, 'm:' )
     plot( ax, rates, twoPop.mix2, 'm:' )
-    legend( ax, {'ISIs', 'Model fit', 'Cutoff', 'Populations'}, ...
-            'Location', 'Best' )
+    legend( ax, {'ISIs', 'Model fit', 'Cutoff', 'Slow Rate', ...
+                 'Fast Rate', 'Populations'}, 'Location', 'Best' )
   end
 
   varargout = {twoPop};
@@ -448,23 +460,35 @@ function isiCutoff = solveCutoff( fitParams, sigmaIsis, ratio )
   if abs( a * (s1^2 + s2^2) ) > 1e-3
     root = b^2 - 4*a*c;
     if root > 0
+      % have quadratic equation with two roots.
+      % Choose isiCutoff1 < isiCutoff2
       root = sqrt( root );
       isiCutoff1 = (-b + root) / (2 * a );
       isiCutoff2 = (-b - root) / (2 * a );
-    
-      if isiCutoff1 > 0 && isiCutoff2 < 0
-        isiCutoff = isiCutoff1;
-      elseif isiCutoff1 < 0 && isiCutoff2 > 0
-        isiCutoff = isiCutoff2;
-      elseif r1 <= isiCutoff1 && r2 >= isiCutoff1
-        isiCutoff = isiCutoff1;
-      else
-        isiCutoff = isiCutoff2;
+      if a < 0
+        temp = isiCutoff1; isiCutoff1 = isiCutoff2; isiCutoff2 = temp;
       end
-    else
+      
+      % select desired root
+      if isiCutoff1 < 0 && isiCutoff2 > 0 % isiCutoff1 is nonsense:
+        isiCutoff = isiCutoff2;
+      elseif ratio <= 1
+        if r1 <= isiCutoff1
+          isiCutoff = isiCutoff1;
+        else
+          isiCutoff = isiCutoff2;
+        end
+      else
+        if r2 >= isiCutoff2
+          isiCutoff = isiCutoff2;
+        else
+          isiCutoff = isiCutoff1;
+        end
+      end
+    else % ratio cannot be achieved. Find location of most extreme ratio
       isiCutoff = -b / (2 * a );
     end
-  else
+  else % two gaussians have ~equal sigmas, not a quadratic equation
     isiCutoff = -c / b;
   end
 end
