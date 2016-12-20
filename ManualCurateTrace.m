@@ -16,7 +16,7 @@ function waveInfo = ManualCurateTrace( traceInfo, spikeInfo, burstInfo, ...
   parser.addParameter( 'buttonHeight', 35 )
   parser.addParameter( 'xPad', 3 )
   parser.addParameter( 'yPad', 3 )
-  parser.addParameter( 'tRange', [0, Inf] )
+  parser.addParameter( 'tRange', [0, Inf] ) % in seconds
   
   parser.parse( varargin{:} )
   options = parser.Results;

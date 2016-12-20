@@ -59,7 +59,7 @@ function spike = GetSpikes( dT, v, varargin )
   parser.addParameter( 'outlierFraction', 0.33 )
   parser.addParameter( 'pFalseSpike', 1.0e-3 )
   parser.addParameter( 'minSpikeHeight', 4.0 )
-  parser.addParameter( 'tRange', [0, Inf] )
+  parser.addParameter( 'tRange', [0, Inf] )  % in seconds
   parser.addParameter( 'minSpikeAspect', 0.0 )
   parser.addParameter( 'lowCutoff', NaN )
   parser.addParameter( 'highCutoff', NaN )

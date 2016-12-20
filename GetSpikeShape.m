@@ -107,7 +107,7 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
     rpp = vPostMaxK - vPreMaxK; % this is the repolarization potential
     
     %width = tMinDV - tMaxDV;
-    halfMax = (vPreMaxK + maxV) / 2;
+    halfMax = (max( vPreMaxK, postMinV ) + maxV) / 2;
     width = dT * getWidthAtHeight( v(nPreMaxK:nPostMin), halfMax );
     aspect = height / width;
     if aspect < options.minSpikeAspect

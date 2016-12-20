@@ -463,8 +463,8 @@ function isiCutoff = solveCutoff( fitParams, sigmaIsis, ratio )
       % have quadratic equation with two roots.
       % Choose isiCutoff1 < isiCutoff2
       root = sqrt( root );
-      isiCutoff1 = (-b + root) / (2 * a );
-      isiCutoff2 = (-b - root) / (2 * a );
+      isiCutoff1 = (-b - root) / (2 * a );
+      isiCutoff2 = (-b + root) / (2 * a );
       if a < 0
         temp = isiCutoff1; isiCutoff1 = isiCutoff2; isiCutoff2 = temp;
       end
