@@ -210,7 +210,7 @@ function [deriv, deriv2] = getDerivs( n1List, n2List, dT, v, options )
   peak = meanWave(mid);
   halfMax = (bottom + peak) / 2;
   
-  maxTimeWidth = dT * getWidthAtHeight( meanWave, halfMax );
+  maxTimeWidth = dT * getWidthAtHeight( meanWave, halfMax, mid );
   % get derivatives using maxTimeWidth to choose filter parameters
   nyquistRate = 1.0 / (2 * dT);
   fStop = min( nyquistRate * 2/3, 1.0 / maxTimeWidth );
@@ -222,7 +222,9 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function width = getWidthAtHeight( meanWave, height, mid )
   % first get integer estimate
-  [~, mid] = max( meanWave );
+  if ~exist( 'mid', 'var' )
+    [~, mid] = max( meanWave );
+  end
   n1 = find( meanWave(1:mid) <= height, 1, 'last' );
   n2 = find( meanWave(mid:end) <= height, 1 ) + (mid-1);
   % next interpolate

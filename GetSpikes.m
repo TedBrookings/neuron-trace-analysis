@@ -177,9 +177,14 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
                          / independentSamplesPerSec );
   wantedNumSigma = sqrt(2) * erfcinv( minRareness );
   
-  fastFilt = GetFilterFunction( [0, -fastTime] ./ dT );
-  sigmaFast = std( fastFilt( v ) );
-  options.noiseThreshold = sigmaFast * wantedNumSigma;
+  if options.findMinis
+    % for minis, just look for height above very fast things
+    fastFilt = GetFilterFunction( [0, -fastTime] ./ dT );
+    sigmaNoise = std( fastFilt( v ) );
+  else % for regular spikes, look for heights above typical fluctuations
+    sigmaNoise = highSigma;
+  end
+  options.noiseThreshold = sigmaNoise * wantedNumSigma;
   
   %vFiltThreshold = noisePeak + highSigma * wantedNumSigma;
   vFiltThreshold = options.noiseThreshold;
