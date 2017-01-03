@@ -104,7 +104,7 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
       continue
     end
     height = maxV - vPreMaxK; % this is the relevant height
-    rpp = vPostMaxK - vPreMaxK; % this is the repolarization potential
+    rpp = postMinV - vPreMaxK; % this is the repolarization potential
     
     %width = tMinDV - tMaxDV;
     halfMax = (max( vPreMaxK, postMinV ) + maxV) / 2;
