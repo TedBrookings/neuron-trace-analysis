@@ -13,28 +13,43 @@
 %                                      initial dimension of data
 %                                      number of classes
 % OUTPUTS:
-%   classifyFunc( properties ) returns as first argument,
-%                                a lower-dimensional projection of the
-%                                properties that yields the best separation
-%                              returns as second argument,
-%                                the best estimate of the class label
+%   classifyFunc( properties )
+%      inputs: matrix of untrained properties
+%      outputs: propertiesMat: lower-dimensional projection of the
+%                              properties that yields the best separation
+%               classLabels: the best estimate of the class label
+%               classScores: numData x numClasses matrix of scores,
+%                            nominally 0-1 score for membership in each
+%                            class
 %   projectedProperties   a lower-dimensional projection of the training
 %                         data
 %   classLabels           estimated class labels of the training data
 function varargout = DiscriminantAnalysis( propertiesMat, labels, varargin )
   parser = inputParser();
-  parser.addParameter( 'kernel', @(a,b) a * b' )
+  okayKernel = @(k) (ischar( k ) && ismember( k, {'linear', 'gaussian'} ))...
+                    || ishandle( k );
+  parser.addParameter( 'kernel', 'gaussian', okayKernel )
   parser.addParameter( 'numFinalDimensions', Inf )
   parser.addParameter( 'floatTol', 1e-12 )
-  parser.addParameter( 'regularization', 1e-9 )
+  parser.addParameter( 'regularization', 1.0 )
   parser.addParameter( 'minConditionNumber', 0.25 )
   parser.addParameter( 'preprocess', true )
+  % note: fixDistanceScore is meant to be a boolean signaling whether to
+  % attempt to "fix" the problem that classScores may be outside the range
+  % of [0 1] if a point is past one of the class means. Currently it is not
+  % implemented
+  parser.addParameter( 'fixDistanceScore', false )
+  % print debugging info. Doesn't do much now.
+  parser.addParameter( 'debug', false )
   
   parser.parse( varargin{:} )
   options = parser.Results;
   
   assert( nargout <= 3, 'Too many output arguments' )
   varargout = cell( 1, nargout );
+  
+  % get the correct kernel
+  options = getKernel( options );
   
   % preprocess data if requested
   [propertiesMat, options] = preprocessProperties( propertiesMat, options );
@@ -62,6 +77,21 @@ function varargout = DiscriminantAnalysis( propertiesMat, labels, varargin )
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% get the correct kernel
+function options = getKernel( options )
+  if ischar( options.kernel )
+    switch options.kernel
+      case 'linear'
+        options.kernel = @(a,b) nanDot(a, b);
+      case 'gaussian'
+        sigma = 2.0;
+        twoSigmaSquared = 2 * (sigma)^2;
+        options.kernel = @(a,b) exp( -nanPdist2(a, b).^2 ./ twoSigmaSquared );
+    end
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % preprocess data if requested
 function [propertiesMat, options] = preprocessProperties( propertiesMat, ...
                                                           options )
@@ -69,9 +99,12 @@ function [propertiesMat, options] = preprocessProperties( propertiesMat, ...
     options.shift = []; options.scale = [];
     return
   end
-  options.shift = mean( propertiesMat, 1 );
+  % z-score propertiesMat, remembering shift and scale (mean and std)
+  options.shift = mean( propertiesMat, 1, 'omitnan' );
   propertiesMat = bsxfun( @minus, propertiesMat, options.shift );
-  options.scale = std( propertiesMat, 1 );
+  options.scale = sqrt( mean( propertiesMat.^2, 1, 'omitnan' ) );
+  small = abs( options.scale ) <= max( eps, abs( options.shift ) .* eps );
+  options.scale(small) = 1.0;
   propertiesMat = bsxfun( @rdivide, propertiesMat, options.scale );
 end
 
@@ -193,16 +226,24 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function mat = makeWellConditioned( mat, options )
-  initialRCond = rcond( mat )
-  if rcond( mat ) < options.minConditionNumber
+  initialRCond = rcond( mat );
+  if options.debug
+    fprintf( 'Initial rcond = %g\n', initialRCond )
+  end
+  if initialRCond < options.minConditionNumber
     reg = options.regularization .* eye( size( mat ) );
     mat = mat + reg;
-    while rcond( mat ) < options.minConditionNumber
+    finalRCond = rcond( mat );
+    while finalRCond < options.minConditionNumber
       reg = reg .* 10;
       mat = mat + reg;
+      finalRCond = rcond( mat );
     end
   end
-  finalRCond = rcond( mat )
+  if options.debug
+    finalRCond = rcond( mat );
+    fprintf( 'Final rcond = %g\n', finalRCond )
+  end
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -223,7 +264,8 @@ function varargout = ...
   classifyFunc = ...
     @(properties) projectProperties( properties, propertiesMat, eigenVecs, ...
                                      kernel, shift, scale, ...
-                                     classes, classMeanProps );
+                                     classes, classMeanProps, ...
+                                     options.fixDistanceScore );
   if nargout < 3
     classLabels = [];
   else
@@ -237,7 +279,8 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function varargout = projectProperties( newProperties, trainedProperties, ...
                                         eigenVecs, kernel, shift, scale,...
-                                        classes, classMeanProps )
+                                        classes, classMeanProps, ...
+                                        fixDistanceScore )
   numNew = size( newProperties, 1 );
   numTrained = size( trainedProperties, 1 );
   if ~isempty( shift )
@@ -263,10 +306,85 @@ function varargout = projectProperties( newProperties, trainedProperties, ...
   projectedProps = dotMat * eigenVecs;
   if nargout > 1
     meanClassDistance = pdist2( projectedProps, classMeanProps );
-    [~, minInd] = min( meanClassDistance, [], 2 );
+    [minDist, minInd] = min( meanClassDistance, [], 2 );
     classLabels = classes(minInd);
+    for row = numel( minDist ):-1:1
+      classScores(row,:) = getClassScores( projectedProps(row,:), ...
+                                           classMeanProps, ...
+                                           meanClassDistance(row,:), ...
+                                           fixDistanceScore );
+    end
   else
-    classLabels = [];
+    classLabels = []; classScores = [];
   end
-  varargout = { projectedProps, classLabels };
+  varargout = { projectedProps, classLabels, classScores };
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function classScores = getClassScores( projectedProps, classMeanProps, ...
+                                       meanClassDistance, fixDistanceScore ) %#ok<INUSD>
+  % note: fixDistanceScore is meant to be a boolean signaling whether to
+  % attempt to "fix" the problem that classScores may be outside the range
+  % of [0 1] if a point is past one of the class means. Currently it is not
+  % implemented
+  [~, sortInd] = sort( meanClassDistance );
+  bestInd = sortInd(1); secondBest = sortInd(2);
+  numScores = size( classMeanProps, 1  );
+  
+  for col = numScores:-1:1
+    if col == bestInd
+      props1 = classMeanProps(bestInd,:);
+      props2 = classMeanProps(secondBest,:);
+    else
+      props1 = classMeanProps(col,:);
+      props2 = classMeanProps(bestInd,:);
+    end
+    classScores(col) = (props1 - props2) * (projectedProps - props2)' ...
+                     / ( (props1 - props2) * (props1 - props2)' );
+  end
+end
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% dotMat = nanDot( mat1, mat2 )
+% Reduces to mat1 * mat2' when mat1 and mat2 have no NaNs
+% If they have NaNs, only common non-NaN values are used to compute dot
+% product, and the result is scaled to account for reduced dimensionality.
+% If two points have no common non-NaN coordinates, the value of the
+% dot product is set to zero.
+function dotMat = nanDot( mat1, mat2 )
+  [numEntities1, numProps] = size( mat1 );
+  [numEntities2, numProps2] = size( mat2 );
+  assert( numProps2 == numProps, ...
+          'Number of properties (columns) must match' )
+  dotMat = bsxfun( @times, ...
+                    reshape( mat1, [numEntities1, 1, numProps] ), ...
+                    reshape( mat2, [1, numEntities2, numProps] ) );
+  dotMat = numProps .* mean( dotMat, 3, 'omitnan' );
+  stillNan = isnan( dotMat );
+  if any( stillNan(:) )
+    dotMat(stillNan) = 0;
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% distMat = NanPdist2( mat1, mat2 )
+% Reduces to pdist2 with euclidean distance when mat1 and mat2 have no NaNs
+% If they have NaNs, only common non-NaN values are used to compute
+% distance, and the result is scaled to account for reduced dimensionality.
+% If two points have no common non-NaN coordinates, the value of the
+% distance is set to twice the maximum computable distance.
+function distMat = nanPdist2( mat1, mat2 )
+  [numEntities1, numProps] = size( mat1 );
+  [numEntities2, numProps2] = size( mat2 );
+  assert( numProps2 == numProps, ...
+          'Number of properties (columns) must match' )
+  distMat = bsxfun( @minus, ...
+                    reshape( mat1, [numEntities1, 1, numProps] ), ...
+                    reshape( mat2, [1, numEntities2, numProps] ) );
+  distMat = sqrt( numProps .* mean( distMat.^2, 3, 'omitnan' ) );
+  stillNan = isnan( distMat );
+  if any( stillNan(:) )
+    distMat(stillNan) = max( distMat(:) ) * 2;
+  end
 end
