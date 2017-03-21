@@ -17,6 +17,9 @@ function varargout = VisualizeClassScores( classScores, labels, varargin )
   parser.addParameter( 'colorMap', 'hsv' )
   parser.addParameter( 'xSpread', 0.15 )
   parser.addParameter( 'windowStyle', 'docked' )
+  okayAnnotation = @(a) ismember( a, {'% correct', 'zPrime'} );
+  parser.addParameter( 'annotation', '% correct', okayAnnotation )
+  parser.addParameter( 'annotationFontSize', 12 )
   
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -44,10 +47,19 @@ function varargout = VisualizeClassScores( classScores, labels, varargin )
   axis( ax, 'tight' )
   yRange = ylim( ax );
   for n = numClasses:-1:1
-    zPrime(1,n) = getZPrime( classScores(classInd==n,n), ...
-                             classScores(classInd~=n,n) );
-    text( ax, n, yRange(2), sprintf( 'Z'' = %.2f', zPrime(n) ), ...
+    switch options.annotation
+      case '% correct'
+        pCorrect = 100 * sum( classScores(classInd==n,n) > 0.5 ) ...
+                 / sum( classInd == n );
+        aStr = sprintf( '%.1f%%', pCorrect );
+      case 'zPrime'
+        zPrime(1,n) = getZPrime( classScores(classInd==n,n), ...
+                                 classScores(classInd~=n,n) );
+        aStr = sprintf( 'Z'' = %.2f', zPrime(n) );
+    end
+    text( ax, n, yRange(2), aStr, ...
           'Color', 1.0 - options.figBackgroundColor, ...
+          'FontName', 'Arial', 'FontSize', options.annotationFontSize, ...
           'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom' )
   end
   plot( ax, [0.5, numClasses + 0.5], [0.5 0.5], 'w--' )

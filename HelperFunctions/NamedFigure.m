@@ -10,9 +10,22 @@
 %    OUTPUT:
 %     -fig    Handle to the figure
 function varargout = NamedFigure( name, varargin )
+  parser = inputParser();
+  parser.KeepUnmatched = true;
+  parser.addParameter( 'Position', [] )
+  parser.addParameter( 'WindowStyle', 'normal' )
+  parser.addParameter( 'Visible', 'on' )
+  
+  parser.parse( varargin{:} )
+  options = parser.Results;
+  
   % find any figures with requested name
   fig = findobj( 'Name', name, 'Type', 'Figure' );
   
+  defaultProperties = { ...
+    'PaperSize', [10 7.5], ...
+    'InvertHardcopy', 'off' ...
+  };
   if isempty( fig )
     % no such figure exists, create one
     
@@ -23,7 +36,20 @@ function varargout = NamedFigure( name, varargin )
     set( 0, 'defaulttextfontsize', 18 )
     
     % create the figure
-    fig = figure( 'Name', name, varargin{:} );
+    fig = figure( 'Name', name, defaultProperties{:}, varargin{:}, ...
+                  'visible', 'off', 'WindowStyle', 'normal' );
+    if isempty( options.Position )
+      units = fig.Units;
+      fig.Units = 'inches';
+      fig.Position = [0, 0, fig.PaperSize];
+      fig.Units = units;
+    end
+    if strcmp( options.WindowStyle, 'docked' )
+      fig.WindowStyle = 'docked';
+    end
+    if strcmp( options.Visible, 'on' )
+      fig.Visible = 'on';
+    end
   else
     % figure exists, set it to current figure
     set( 0, 'CurrentFigure', fig(1) )
