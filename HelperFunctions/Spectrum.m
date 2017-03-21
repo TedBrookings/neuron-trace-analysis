@@ -1,76 +1,71 @@
-function [ySpectrum, varargout] = Spectrum(y, dT, varargin)
 % [ySpectrum, f, yCorr] = Spectrum(y, dt, method)
-
-% get options
-defaultOptions = { ...
-  'removeTrend', true, ...
-  'plotSubject', false ...
-};
-options = GetOptions(defaultOptions, varargin);
-
-if size(y,1) > 1
-  y = y';
-end
-
-if options.removeTrend
-  % remove linear trend from y, unless requested not to
-  y = removeTrend(y, dT);
-end
-
-% compute spectrum
-yCorr = xcorr(y, 'unbiased');
-numY = length(y);
-halfInd = ceil(numY / 2);
-ySpectrum = fft(yCorr(halfInd:(halfInd + numY - 1)));
-
-% determine if a plot is needed
-needPlot = ischar(options.plotSubject) || options.plotSubject;
-
-if needPlot || nargout > 1
-  % need to compute the frequencies
-  numSpec = length(ySpectrum);
-  halfInd = ceil(numSpec/2);
-  f = (2*pi / numSpec) * (0:(numSpec-1));
-  f(halfInd:end) = f(halfInd:end) - 2*pi;
-  if nargin > 1 && ~isempty(dT)
-    f = f / dT;
+function varargout = Spectrum(y, dT, varargin)
+  parser = inputParser();
+  parser.addParameter( 'removeTrend', true )
+  parser.addParameter( 'plot', false )
+  parser.addParameter( 'title', 'Spectrum' )
+  parser.addParameter( 'xlabel', 'Frequency' )
+  parser.addParameter( 'ylabel', 'Power' )
+  parser.parse( varargin{:} )
+  options = parser.Results;
+  
+  needTranspose = ~isrow( y );
+  if needTranspose
+    y = y';
   end
-  if needPlot
-    titleStr = 'Spectrum';
-    if ischar(options.plotSubject)
-      titleStr = [options.plotSubject, ' - ', titleStr];
-    end
-    h = NamedFigure(titleStr);
-    set(h, 'WindowStyle', 'docked')
-    clf
-    hold on
-    plot(f(1:(halfInd-1)), sqrt(abs(ySpectrum(1:(halfInd-1)))))
-    plot(f(halfInd:end), sqrt(abs(ySpectrum(halfInd:end))))
-    hold off
+  if options.removeTrend
+    % remove linear trend from y, unless requested not to
+    y = removeTrend( y );
+  end
+  if isempty( dT )
+    dT = 1;
   end
   
-  if nargout > 1
-    varargout = {f};
+  % compute spectrum
+  yCorr = autocorr( y );
+  
+  numY = numel( y );
+  halfInd = ceil( numY / 2 );
+  ySpectrum = fft( yCorr(halfInd:(halfInd + numY - 1)) );
+  
+  if options.plot || nargout > 1
+    % need to compute the frequencies
+    numSpec = numel( ySpectrum );
+    halfInd = ceil( numSpec/2 );
+    f = (0:(numSpec-1)) ./ (dT * numSpec);
+    f(halfInd:end) = f(halfInd:end) - 1/(dT * numSpec);
+    if options.plot
+      yPower = sqrt( abs( ySpectrum ) );
+      titleStr = options.title;
+      fig = NamedFigure( titleStr, 'WindowStyle', 'docked' ); clf( fig )
+      ax = axes( 'Parent', fig, 'OuterPosition', [0 0 1 1] );
+      plot( ax, f(1:(halfInd-1)), yPower(1:(halfInd-1)) )
+      title( ax, titleStr )
+      ylabel( ax, options.ylabel )
+      xlabel( ax, options.xlabel )
+    end
   end
-else
-  varargout = {};
+  
+  if nargout == 0
+    varargout = {};
+  else
+    varargout = {ySpectrum, f, yCorr};
+  end
 end
-
-if nargout > 2
-  varargout = [varargout, yCorr];
-end
-return
-
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function y = removeTrend(y, dt)
 % remove linear trend from y
-numY = length(y);
-tEnd = dt * (numY - 1);
-t = 0:dt:tEnd;
-dYAvg = (y(end) - y(1)) / tEnd;
-tMean = tEnd / 2;
-yAvg = mean(y) + dYAvg * (t - tMean);
-y = y - yAvg;
-return
+function y = removeTrend( y )
+  x = 1:numel( y );
+  p = polyfit( x, y, 1 );
+  y = y - polyval( p, x );
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function yCorr = autocorr( y )
+  numY = numel( y ); numC = 2 * numY - 1;
+  yFft = fft( y, numC );
+  yCorr = ifft( yFft .* conj( yFft ), 'symmetric' );
+  scale = numY - abs((1-numY):(numY-1));
+  yCorr = yCorr ./ scale;
+end
