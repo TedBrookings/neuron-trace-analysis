@@ -1,4 +1,4 @@
-% [ySpectrum, f, yCorr] = Spectrum(y, dt, method)
+% [powerSpectrum, f, yCorr] = Spectrum(y, dt, method)
 function varargout = Spectrum(y, dT, varargin)
   parser = inputParser();
   parser.addParameter( 'removeTrend', true )
@@ -6,6 +6,7 @@ function varargout = Spectrum(y, dT, varargin)
   parser.addParameter( 'title', 'Spectrum' )
   parser.addParameter( 'xlabel', 'Frequency' )
   parser.addParameter( 'ylabel', 'Power' )
+  parser.addParameter( 'yScale', 'log' )
   parser.parse( varargin{:} )
   options = parser.Results;
   
@@ -26,30 +27,29 @@ function varargout = Spectrum(y, dT, varargin)
   
   numY = numel( y );
   halfInd = ceil( numY / 2 );
-  ySpectrum = fft( yCorr(halfInd:(halfInd + numY - 1)) );
+  powerSpectrum = fft( yCorr(halfInd:(halfInd + numY - 1)) );
+  halfInd = ceil( numY / 2 );
+  powerSpectrum = sqrt( abs( powerSpectrum(1:halfInd) ) );
   
   if options.plot || nargout > 1
     % need to compute the frequencies
-    numSpec = numel( ySpectrum );
-    halfInd = ceil( numSpec/2 );
-    f = (0:(numSpec-1)) ./ (dT * numSpec);
-    f(halfInd:end) = f(halfInd:end) - 1/(dT * numSpec);
+    f = (0:halfInd-1) ./ (dT * numY);
     if options.plot
-      yPower = sqrt( abs( ySpectrum ) );
       titleStr = options.title;
       fig = NamedFigure( titleStr, 'WindowStyle', 'docked' ); clf( fig )
       ax = axes( 'Parent', fig, 'OuterPosition', [0 0 1 1] );
-      plot( ax, f(1:(halfInd-1)), yPower(1:(halfInd-1)) )
+      plot( ax, f, powerSpectrum )
       title( ax, titleStr )
       ylabel( ax, options.ylabel )
       xlabel( ax, options.xlabel )
+      ax.YScale = options.yScale;
     end
   end
   
   if nargout == 0
     varargout = {};
   else
-    varargout = {ySpectrum, f, yCorr};
+    varargout = {powerSpectrum, f, yCorr};
   end
 end
 
@@ -64,7 +64,7 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function yCorr = autocorr( y )
   numY = numel( y ); numC = 2 * numY - 1;
-  yFft = fft( y, numC );
+  yFft = fft( y ./ norm( y ), numC );
   yCorr = ifft( yFft .* conj( yFft ), 'symmetric' );
   scale = numY - abs((1-numY):(numY-1));
   yCorr = yCorr ./ scale;

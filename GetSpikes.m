@@ -74,6 +74,10 @@ function spike = GetSpikes( dT, v, varargin )
   parser.addParameter( 'useDerivatives', false )
   parser.addParameter( 'slowTimeFactor', 10.0 )
   parser.addParameter( 'minSpikeWidth', [] )
+  % leave this blank for autodetection, or override with boolean
+  parser.addParameter( 'cleanLineNoise', [] )
+  parser.addParameter( 'lineNoiseFrequency_Hz', 60.0 )
+  parser.addParameter( 'lineNoiseFilterBandwidth', 1e-4 );
 
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -103,6 +107,9 @@ function spike = GetSpikes( dT, v, varargin )
       v = v';
     end
   end
+  
+  % Clean electrical noise (typically 60Hz) contamination if it is present
+  v = cleanLineNoise( v, dT, options );
   
   % Trim unwanted parts of the voltage trace
   [v, options] = trimUnwantedTrace( dT, v, options );
@@ -134,6 +141,39 @@ function spike = GetSpikes( dT, v, varargin )
       aHandles = [aSpikes, aDerivs];
       linkaxes(aHandles, 'x');
     end
+  end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function v = cleanLineNoise( v, dT, options )
+  dT = 1.0e-3 * dT; % in this subroutine, dT is in seconds;
+  if isempty( options.cleanLineNoise )
+    [pSpectrum, fSpectrum] = Spectrum( v, dT, 'plot', false );
+    noiseFreq = options.lineNoiseFrequency_Hz;
+    lowFreq = noiseFreq * 0.8; highFreq = noiseFreq * 1.25;
+    i1 = find( fSpectrum >= lowFreq, 1 );
+    i2 = find( fSpectrum <= highFreq, 1, 'last' );
+    [maxPow, maxInd] = max( pSpectrum(i1:i2) );
+    basePow = median( pSpectrum(i1:(i1+maxInd-1)) );
+    cleanLineNoise = maxPow / basePow > 2.0;
+    noiseFreq = fSpectrum(i1 + maxInd - 1);
+  else
+    cleanLineNoise = options.cleanLineNoise;
+    noiseFreq = options.lineNoiseFrequency_Hz;
+  end
+  if ~cleanLineNoise
+    return
+  end
+  
+  % we know we want to filter nosie that is at noiseFreq. Subtract away
+  % that frequency and all its harmonics that are below half Nyquist
+  fNyquist = 0.5 / dT;
+  maxF = 0.5 * fNyquist;
+  nMax = floor( maxF / noiseFreq );
+  frequencyBank = noiseFreq .* (1:nMax);
+  bandwidth = options.lineNoiseFilterBandwidth;
+  for freq = frequencyBank
+    v = NotchFilter( v, freq * dT, bandwidth );
   end
 end
 

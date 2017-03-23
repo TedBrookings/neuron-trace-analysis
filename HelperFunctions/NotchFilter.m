@@ -9,6 +9,9 @@ function yFilt = NotchFilter( y, f, bandwidth, varargin )
   
   dT = options.dT;
   f = f * dT;
+  if f > 0.5
+    warning( 'Filter frequency is greater than Nyquist frequency. Wrong units?' )
+  end
   filterCoefs = getFilterCoefs( f, bandwidth, options.type );
   
   needTranspose = ~isrow( y );
