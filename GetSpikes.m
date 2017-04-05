@@ -210,6 +210,14 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
   n2List = find( highV & [~highV(2:end), true] );
     
   [n1List, n2List] = extendBrackets( n1List, n2List, vFilt );
+  if isempty( options.minSpikeWidth )
+    minSpikeWidth = 4 * dT;
+  else
+    minSpikeWidth = options.minSpikeWidth;
+  end
+  bad = n2List - n1List < minSpikeWidth / dT;
+  n1List(bad) = []; n2List(bad) = [];
+  
   heights = arrayfun( @(i1,i2) max( vFilt(i1:i2) ) - max( vFilt(i1), vFilt(i2) ), n1List, n2List );
   [noisePeak, ~, highSigma] = ...
     FindPeak( sort( heights ), options.noiseCheckQuantile );
@@ -232,13 +240,7 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
   vFiltThreshold = options.noiseThreshold;
   bad = heights < vFiltThreshold;
   n1List(bad) = []; n2List(bad) = [];
-  if isempty( options.minSpikeWidth )
-    minSpikeWidth = 4 * dT;
-  else
-    minSpikeWidth = options.minSpikeWidth;
-  end
-  bad = n2List - n1List < minSpikeWidth / dT;
-  n1List(bad) = []; n2List(bad) = [];
+
   
   if options.debugPlots
     fig = NamedFigure( 'vFilt', 'WindowStyle', 'docked' ); clf( fig );

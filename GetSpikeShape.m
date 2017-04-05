@@ -109,6 +109,11 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
     %width = tMinDV - tMaxDV;
     halfMax = (max( vPreMaxK, postMinV ) + maxV) / 2;
     width = dT * getWidthAtHeight( v(nPreMaxK:nPostMin), halfMax );
+    if isnan( width )
+      badSpikes(m) = true;
+      badSpikeReasons{m} = 'Could not measure width (too narrow or peak at edge)';
+      continue
+    end
     aspect = height / width;
     if aspect < options.minSpikeAspect
       % this spike is bad

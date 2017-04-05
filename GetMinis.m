@@ -1,16 +1,17 @@
 function minis = GetMinis( dT, v, varargin )
   parser = inputParser();
   parser.KeepUnmatched = true;
-  parser.addParameter( 'bracketWidth', [] )
+  parser.addParameter( 'bracketWidth', 50.0 )
   parser.addParameter( 'minCutoffDiff', 0.001 )
   parser.addParameter( 'minSpikeHeight', 0.0 )
   parser.addParameter( 'minSpikeAspect', 0.0 )
-  parser.addParameter( 'pFalseSpike', [] )
+  parser.addParameter( 'pFalseSpike', 0.001 )
   parser.addParameter( 'discountNegativeDeriv', true )
   parser.addParameter( 'recursive', true )
   parser.addParameter( 'outlierFraction', 0.0 )
-  parser.addParameter( 'noiseCheckQuantile', [] )
-  parser.addParameter( 'slowTimeFactor', 20.0 )
+  parser.addParameter( 'noiseCheckQuantile', 0.25 )
+  parser.addParameter( 'slowTimeFactor', 200.0 )
+  parser.addParameter( 'minSpikeWidth', 15.0 ) % ms
   parser.addParameter( 'useDerivatives', false )
 
   parser.parse( varargin{:} )
@@ -22,17 +23,15 @@ function minis = GetMinis( dT, v, varargin )
   
  
   if options.useDerivatives
+    % this is here as a place-holder so that derivatives-based detection
+    % can have different options. At the moment it's unnecessary since I
+    % haven't tuned derivatives-based detection
     miniOptions = struct( ...
-      'bracketWidth', 50.0, ...
-      'pFalseSpike', 0.001, ...
-      'noiseCheckQuantile', 0.5, ...
-      'slowTimeFactor', 100 ...
+      'useDerivatives', true ...
     );
   else
     miniOptions = struct( ...
-      'bracketWidth', 25.0, ...
-      'pFalseSpike', 0.05, ...
-      'noiseCheckQuantile', 0.1 ...
+      'useDerivatives', false ...
     );
   end
   fNames = fieldnames( miniOptions );
