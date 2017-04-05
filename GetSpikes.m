@@ -130,15 +130,17 @@ function spike = GetSpikes( dT, v, varargin )
   
   callstack = dbstack;
   if needPlot( options, callstack )
-    hSpikes = PlotSpikes( dT, v, spike, [], options );
+    [spikesFig, spikesAx] = PlotSpikes( dT, v, spike, [], options );
+    vHandles = findobj( 'Tag', 'Voltage', 'Type', 'Axes' );
+    linkaxes( [vHandles, spikesAx], 'x' );
     
     % link relevant time axis together
     if options.debugPlots
-      aSpikes = get(hSpikes, 'CurrentAxes');
+      %aSpikes = get(spikesFig, 'CurrentAxes');
       derivsTitle = makeTitle('Derivatives', options);
       %aDerivs = get(findobj('name', derivsTitle),'CurrentAxes');
       aDerivs = findobj('Tag', derivsTitle)';
-      aHandles = [aSpikes, aDerivs];
+      aHandles = [spikesAx, aDerivs];
       linkaxes(aHandles, 'x');
     end
   end
@@ -245,8 +247,7 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
     plot( ax, t, vFilt );
     plot( ax, t(n1List), vFilt(n1List), 'rx' )
     plot( ax, t(n2List), vFilt(n2List), 'ro' )
-
-
+    ax.Tag = 'Voltage';
     
     [density, vPoints] = KernelDensity( heights );
     yRange = [0, max( density )];
@@ -265,42 +266,9 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
     axis( ax, 'tight' )
   end
   
-  %{  
-  filterVector = getSpikeFilter( n1List, n2List, v );
-  spikeFilterFunc = GetFilterFunction( [], 'filterVector', flip( filterVector ) );
-  vSpikeFilt = spikeFilterFunc( v );
-  %highV = vSpikeFilt >= options.noiseThreshold;
-  highV = vSpikeFilt >= 0;
-  n1List = find( highV & [true, ~highV(1:end-1)] );
-  n2List = find( highV & [~highV(2:end), true] );
-  
-  fig = NamedFigure( 'vSpikeFilt' ); clf( fig );
-  ax = subplot( 1,1,1, 'parent', fig ); hold( ax, 'on' )
-  t = (1e-3 * dT) .* (0:(numel(v)-1));
-  plot( ax, t, vSpikeFilt );
-  plot( ax, t(n1List), vSpikeFilt(n1List), 'rx' )
-  plot( ax, t(n2List), vSpikeFilt(n2List), 'ro' )
-  [n1List, n2List] = extendBrackets( n1List, n2List, vSpikeFilt );
-
-  heights = arrayfun( @(i1,i2) max( vSpikeFilt(i1:i2) ), n1List, n2List );
-  [noisePeak, ~, highSigma] = ...
-    FindPeak( sort( heights ), options.noiseCheckQuantile );
-  
-  vFiltThreshold = noisePeak + highSigma * wantedNumSigma;
-  bad = heights < vFiltThreshold;
-  n1List(bad) = []; n2List(bad) = [];
-  if isempty( options.minSpikeWidth )
-    minSpikeWidth = 4 * dT;
-  else
-    minSpikeWidth = options.minSpikeWidth;
-  end
-  bad = n2List - n1List < minSpikeWidth / dT;
-  n1List(bad) = []; n2List(bad) = [];
-
-  %}
-  %[n1List, n2List] = extendBrackets( n1List, n2List, v );
-  options.checkHeights = arrayfun( @(n1, n2) max( v(n1:n2) ) - max( v(n1), v(n2) ), ...
-                                   n1List, n2List );
+  options.checkHeights = ...
+    arrayfun( @(n1, n2) max( v(n1:n2) ) - max( v(n1), v(n2) ), ...
+              n1List, n2List );
   
   %  Get spike shape
   deriv = []; deriv2 = [];

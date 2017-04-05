@@ -56,7 +56,7 @@ function varargout = PlotSpikes( dt, v, spike, burst, varargin )
   addLabels( ax, titleStr, options )
   hold( ax, 'off' );
   if nargout > 0
-    varargout = { fig };
+    varargout = { fig, ax };
   else
     varargout = {};
   end
