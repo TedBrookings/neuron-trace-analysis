@@ -1,7 +1,7 @@
 function minis = GetMinis( dT, v, varargin )
   parser = inputParser();
   parser.KeepUnmatched = true;
-  parser.addParameter( 'bracketWidth', 50.0 )
+  parser.addParameter( 'bracketWidth', 25.0 )
   parser.addParameter( 'minCutoffDiff', 0.001 )
   parser.addParameter( 'minSpikeHeight', 0.0 )
   parser.addParameter( 'minSpikeAspect', 0.0 )
@@ -9,9 +9,9 @@ function minis = GetMinis( dT, v, varargin )
   parser.addParameter( 'discountNegativeDeriv', true )
   parser.addParameter( 'recursive', true )
   parser.addParameter( 'outlierFraction', 0.0 )
-  parser.addParameter( 'noiseCheckQuantile', 0.25 )
-  parser.addParameter( 'slowTimeFactor', 200.0 )
-  parser.addParameter( 'minSpikeWidth', 15.0 ) % ms
+  parser.addParameter( 'noiseCheckQuantile', 0.5 ) % was 0.25
+  parser.addParameter( 'slowTimeFactor', 50.0 ) % was 200
+  parser.addParameter( 'minSpikeWidth', 25.0 ) % ms was 15
   parser.addParameter( 'useDerivatives', false )
 
   parser.parse( varargin{:} )
