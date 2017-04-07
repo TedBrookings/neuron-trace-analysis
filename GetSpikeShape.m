@@ -17,6 +17,7 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
   parser.addParameter( 'outlierFraction', 0.33 )
   parser.addParameter( 'noiseThreshold', [] )
   parser.addParameter( 'checkHeights', [] )
+  parser.addParameter( 'minSpikeWidth', 0 )
   
   parser.parse( varargin{:} )
   options = parser.Results;
@@ -113,6 +114,10 @@ function spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, ...
       badSpikes(m) = true;
       badSpikeReasons{m} = 'Could not measure width (too narrow or peak at edge)';
       continue
+    elseif width < options.minSpikeWidth
+      badSpikes(m) = true;
+      badSpikeReasons{m} = sprintf( 'Spike too narrow (%g/%g)', width, ...
+                                    options.minSpikeWidth );
     end
     aspect = height / width;
     if aspect < options.minSpikeAspect
@@ -229,6 +234,10 @@ function width = getWidthAtHeight( meanWave, height, mid )
   % first get integer estimate
   if ~exist( 'mid', 'var' )
     [~, mid] = max( meanWave );
+  end
+  if mid == 1 && mid == numel( meanWave)
+    width = NaN;
+    return
   end
   n1 = find( meanWave(1:mid) <= height, 1, 'last' );
   n2 = find( meanWave(mid:end) <= height, 1 ) + (mid-1);

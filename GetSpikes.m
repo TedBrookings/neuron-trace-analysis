@@ -83,9 +83,14 @@ function spike = GetSpikes( dT, v, varargin )
   options = parser.Results;
   
   if options.findMinis
-    %warning( 'Calling GetSpikes() with findMinis=true is deprecated. Change code to call GetMinis' )
-    spike = GetMinis( dT, v, varargin{:} );
-    return
+    stack = dbstack;
+    calledByFindMinis = numel( stack ) >= 2 && ...
+                        strcmp( stack(2).name, 'GetMinis' );
+    if ~calledByFindMinis
+      warning( 'Calling GetSpikes() directly with findMinis=true is deprecated. Change code to call GetMinis' )
+      spike = GetMinis( dT, v, varargin{:} );
+      return
+    end
   end
   
   if numel( dT ) > 1
@@ -204,43 +209,35 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
   slowTime = max( options.bracketWidth, fastTime * 3 );
   filtFunc = GetFilterFunction( [fastTime, -slowTime] ./ dT );
   vFilt = filtFunc( v );
-  
-  highV = vFilt >= 0;
+  highV = vFilt > 0;
   n1List = find( highV & [true, ~highV(1:end-1)] );
   n2List = find( highV & [~highV(2:end), true] );
-    
-  [n1List, n2List] = extendBrackets( n1List, n2List, vFilt );
+
+  %{
   if isempty( options.minSpikeWidth )
     minSpikeWidth = 4 * dT;
   else
     minSpikeWidth = options.minSpikeWidth;
   end
+  %}
+  minSpikeWidth = 0.5 * options.bracketWidth;
   bad = n2List - n1List < minSpikeWidth / dT;
   n1List(bad) = []; n2List(bad) = [];
+  [n1List, n2List] = extendBrackets( n1List, n2List, vFilt );
   
   heights = arrayfun( @(i1,i2) max( vFilt(i1:i2) ) - max( vFilt(i1), vFilt(i2) ), n1List, n2List );
-  [noisePeak, ~, highSigma] = ...
-    FindPeak( sort( heights ), options.noiseCheckQuantile );
-  
-  independentSamplesPerSec = 1000 / options.bracketWidth;
-  minRareness = -expm1( log1p( -options.pFalseSpike ) ...
-                         / independentSamplesPerSec );
-  wantedNumSigma = sqrt(2) * erfcinv( minRareness );
-  
+  [heightThreshold, heightPeak] = getThreshold( heights, options );
+  noiseThreshold = heightThreshold; noisePeak = heightPeak;
   if options.findMinis
-    % for minis, just look for height above very fast things
-    fastFilt = GetFilterFunction( [0, -fastTime] ./ dT );
-    sigmaNoise = std( fastFilt( v ) );
-  else % for regular spikes, look for heights above typical fluctuations
-    sigmaNoise = highSigma;
+    [vFiltThreshold, vFiltPeak] = getThreshold( vFilt, options );
+    if vFiltThreshold < heightThreshold
+      noiseThreshold = vFiltThreshold; noisePeak = vFiltPeak;
+    end
   end
-  options.noiseThreshold = sigmaNoise * wantedNumSigma;
+  options.noiseThreshold = noiseThreshold;
   
-  %vFiltThreshold = noisePeak + highSigma * wantedNumSigma;
-  vFiltThreshold = options.noiseThreshold;
-  bad = heights < vFiltThreshold;
+  bad = heights < noiseThreshold;
   n1List(bad) = []; n2List(bad) = [];
-
   
   if options.debugPlots
     fig = NamedFigure( 'vFilt', 'WindowStyle', 'docked' ); clf( fig );
@@ -258,7 +255,20 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
     ax = subplot( 1,2,1, 'Parent', fig ); hold( ax, 'on' )
     area( ax, vPoints, density );
     plot(ax, [noisePeak, noisePeak], yRange, 'k--', 'LineWidth', 2')
-    plot(ax, [vFiltThreshold, vFiltThreshold], yRange, 'g-')
+    plot(ax, [noiseThreshold, noiseThreshold], yRange, 'g-')
+    hold(ax, 'off')
+    xlabel( ax, 'filtered heights (mV)' )
+    ylabel( ax, 'Relative Frequency' )
+    title( ax, RealUnderscores( titleStr ) )
+    legend( ax, { 'heights', 'vTypical', 'vFiltThreshold' }, ...
+            'Location', 'Best' )
+    axis( ax, 'tight' )
+    
+    [density, vPoints] = KernelDensity( vFilt );
+    ax = subplot( 1,2,2, 'Parent', fig ); hold( ax, 'on' )
+    area( ax, vPoints, density );
+    plot(ax, [noisePeak, noisePeak], yRange, 'k--', 'LineWidth', 2')
+    plot(ax, [noiseThreshold, noiseThreshold], yRange, 'g-')
     hold(ax, 'off')
     xlabel( ax, 'vFilt (mV)' )
     ylabel( ax, 'Relative Frequency' )
@@ -275,6 +285,19 @@ function spike = getSpikeTimesVoltageThreshold( dT, v, options )
   %  Get spike shape
   deriv = []; deriv2 = [];
   spike = GetSpikeShape( n1List, n2List, dT, v, deriv, deriv2, options );
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function [threshold, noisePeak] = getThreshold( values, options )
+  [noisePeak, ~, highSigma] = ...
+    FindPeak( sort( values ), options.noiseCheckQuantile );
+  
+  independentSamplesPerSec = 1000 / options.bracketWidth;
+  minRareness = -expm1( log1p( -options.pFalseSpike ) ...
+                         / independentSamplesPerSec );
+  wantedNumSigma = sqrt(2) * erfcinv( minRareness );
+  
+  threshold = noisePeak + wantedNumSigma * highSigma;
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
