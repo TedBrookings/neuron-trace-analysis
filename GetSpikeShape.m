@@ -235,7 +235,7 @@ function width = getWidthAtHeight( meanWave, height, mid )
   if ~exist( 'mid', 'var' )
     [~, mid] = max( meanWave );
   end
-  if mid == 1 && mid == numel( meanWave)
+  if isempty( mid ) || mid == 1 || mid == numel( meanWave)
     width = NaN;
     return
   end
