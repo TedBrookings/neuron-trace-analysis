@@ -16,10 +16,10 @@
 %                      Defaults to true
 %    useFirstJobName:  name the progress bar after the first job, otherwise
 %                      name it 'Progress'. Default to false
-function ProgressBar(name, totalTicks, varargin)
+function ProgressBar( name, totalTicks, varargin )
   if nargin == 1
     % increment progress bar
-    incrementJobTicks(name);
+    incrementJobTicks( name );
   else
     % define passable options and default values
     parser = inputParser();
@@ -28,11 +28,11 @@ function ProgressBar(name, totalTicks, varargin)
     parser.addParameter( 'errorOnPreexisting', false )
     parser.addParameter( 'useFirstJobName', false )
     % get the options
-    parser.parse(varargin{:})
+    parser.parse( varargin{:} )
     options = parser.Results;
     
     % monitor a new job
-    monitorNewJob(name, totalTicks, options)
+    monitorNewJob( name, totalTicks, options )
   end
 end
 
@@ -47,7 +47,7 @@ end
 %   b) a timer
 %   c) a callback function actived by the timer, which monitors the
 %      temporary file and updates the figure appropriately
-function monitorNewJob(name, totalTicks, options)
+function monitorNewJob( name, totalTicks, options )
   invalidChars = unique( name( regexp( name, '[^ .a-zA-Z_0-9\-]' ) ) );
   if ~isempty( invalidChars )
     error( 'ProgressBar name ''%s'' contains invalid character(s): %s', ...
@@ -56,16 +56,16 @@ function monitorNewJob(name, totalTicks, options)
 
   % create an empty timer file to store ticks, overwriting any existing file
   timerFileName = [tempdir, name, '_ProgressBarTimer.txt'];
-  fid = fopen(timerFileName, 'w');
+  fid = fopen( timerFileName, 'w' );
   if fid < 0
-    error('Couldn''t create temporary file: %s', timerFileName)
+    error( 'Couldn''t create temporary file: %s', timerFileName )
   end
   % close the file, leaving it empty
   fclose( fid );
 
   % create a structure to store job information
   if options.keepUnderscores
-    name = realUnderscores(name);
+    name = realUnderscores( name );
   end
   job = struct(...
     'message', name, ...
@@ -78,19 +78,18 @@ function monitorNewJob(name, totalTicks, options)
   );
 
   % check if there is an existing progress timer
-  progressTimer = timerfind('Tag', 'ProgressBarTimer');
-  if ~isempty(progressTimer)
+  progressTimer = timerfind( 'Tag', 'ProgressBarTimer' );
+  if ~isempty( progressTimer )
     % there is already a job being monitored, update the list of new jobs
-    progressFigure = findobj('Tag', 'ProgressBar');
-    newJobs = [get(progressFigure, 'UserData'), job];
-    set(progressFigure, 'UserData', newJobs);
+    progressFigure = findobj( 'Tag', 'ProgressBar' );
+    newJobs = [progressFigure.UserData, job];
+    progressFigure.UserData = newJobs;
   else
     % this is the first job, create a new figure/timer system
-
-    existingFigs = findobj('Tag', 'ProgressBar');
-    if ~isempty(existingFigs)
+    existingFigs = findobj( 'Tag', 'ProgressBar' );
+    if ~isempty( existingFigs )
       % if a progress bar already exists, close it
-      close(existingFigs)
+      close( existingFigs )
     end
     
     % store the data necessary for updates
@@ -297,7 +296,7 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % shutdown the progress bar
-function popupStopCallback(obj, event, string_arg) %#ok<INUSD>
+function popupStopCallback( obj, event, string_arg ) %#ok<INUSD>
   % get the update structure
   update = get(obj, 'UserData');
   jobs = update.jobs;
